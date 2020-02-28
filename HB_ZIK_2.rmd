@@ -164,7 +164,7 @@ Clusters roughly agree with visual seperation on a UMAP plot:
 ```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
 for (i in 1:2){
 Glioblastoma.list[[i]] <- RunUMAP(Glioblastoma.list[[i]], dims = 1:n_dimensions)
-DimPlot(Glioblastoma.list[[i]], reduction = "umap")
+print(DimPlot(Glioblastoma.list[[i]], reduction = "umap"))
 #saveRDS(axonGrowth, file = "axonGrowth_SeuratTutorial.rds")
 }
 ```
@@ -227,30 +227,8 @@ i = 2
 DimPlot(Glioblastoma.list[[i]], reduction = "umap", group.by = 'Patient')
 ```
 
-Visualize markers and annotate clusters:
 
-```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
-i = 1
-#Glioblastoma.0.markers <- FindAllMarkers(Glioblastoma.list[[i]], only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
-#saveRDS(Glioblastoma.0.markers, file = "../data/ZikaGlioblastomas/Glioblastoma.0.markers.rds")
-Glioblastoma.0.markers = readRDS("../data/ZikaGlioblastomas/Glioblastoma.0.markers.rds")
-top = Glioblastoma.0.markers %>% group_by(cluster) %>% top_n(n = 1, wt = avg_logFC)
-FeaturePlot(Glioblastoma.list[[i]], features = top$gene)
-top10 <- Glioblastoma.0.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logFC)
-DoHeatmap(Glioblastoma.list[[i]], features = top10$gene, cells = 1:dim(Glioblastoma.list[[i]])[2] + NoLegend())
-as.matrix(top10)  
-i = 2
-#Glioblastoma.1.markers <- FindAllMarkers(Glioblastoma.list[[i]], only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
-#saveRDS(Glioblastoma.1.markers, file = "../data/ZikaGlioblastomas/Glioblastoma.1.markers.rds")
-Glioblastoma.1.markers = readRDS("../data/ZikaGlioblastomas/Glioblastoma.1.markers.rds")
-top = Glioblastoma.1.markers %>% group_by(cluster) %>% top_n(n = 1, wt = avg_logFC)
-FeaturePlot(Glioblastoma.list[[i]], features = top$gene)
-top5 <- Glioblastoma.1.markers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_logFC)
-DoHeatmap(Glioblastoma.list[[i]], features = top5$gene, cells = sample(1:dim(Glioblastoma.list[[i]])[2], 1000))
-as.matrix(top10)
-```
-
-Vizualize a priori chosen markers of tumour subtypes:
+Vizualize cells with response to virus, based on sum of DDIT3 and IFNB1 expression:
 
 ```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
 viral_response = c('DDIT3', 'IFNB1')
