@@ -1,10 +1,10 @@
 import sys
-sys.modules[__name__].__dict__.clear()
 import scrublet as scr
 import scipy.io
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import scanpy as sc
 
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = 'Arial'
@@ -17,8 +17,8 @@ samples = np.array(('5953STDY8551191', '5953STDY8551192', '5953STDY8551193', '59
 for i in range(len(samples)):
     print(i)
     output_dir = '/home/jovyan/HB_ZIK/scrublet/'
-    input_dir = '/home/jovyan/data/ZikaGlioblastomas/cellranger302_count_32771_' + samples[i] + '_GRCh38-3_0_0_premrna/filtered_feature_bc_matrix/filtered_feature_bc_matrix'
-    counts_matrix = scipy.io.mmread(input_dir + '/matrix.mtx').T.tocsc()
+    adata = sc.read_10x_h5('/home/jovyan/data/HB_ZIK/HB_ZIK/cellranger302_count_32771_5953STDY855119' + str(i+1) + '_GRCh38-3_0_0_premrna/output_filtered.h5', genome='background_removed')
+    counts_matrix = adata.X
     genes = np.array(scr.load_genes(input_dir + '/features.tsv', delimiter='\t', column=1))
 
     print('Counts matrix shape: {} rows, {} columns'.format(counts_matrix.shape[0], counts_matrix.shape[1]))

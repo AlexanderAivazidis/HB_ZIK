@@ -10,10 +10,10 @@ plt.rcParams['font.sans-serif'] = 'Arial'
 plt.rc('font', size=14)
 plt.rcParams['pdf.fonttype'] = 42
 
-tag = 'FFT4G_NEB_resequenced'
+tag = 'SmartSeq'
 output_dir = '/home/jovyan/HB_ZIK/scrublet'
 input_dir = '/home/jovyan/data/ZikaGlioblastomas'
-input_file = '/home/jovyan/data/snQCandAnalysis/FFT4G_NEB_resequenced/premrna-study5705-tic281-star-genecounts.txt'
+input_file = '/home/jovyan/data/ZikaGlioblastomas/tic-527/study5953-tic527-star-fc-genecounts.txt'
 counts_matrix = pd.read_csv(input_file, sep='\t')
 counts_matrix = counts_matrix.iloc[0:-4,:]
 genes = counts_matrix.iloc[:,0]
