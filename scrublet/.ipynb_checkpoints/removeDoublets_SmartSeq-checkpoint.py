@@ -13,7 +13,7 @@ plt.rcParams['pdf.fonttype'] = 42
 tag = 'SmartSeq'
 output_dir = '/home/jovyan/HB_ZIK/scrublet'
 input_dir = '/home/jovyan/data/ZikaGlioblastomas'
-input_file = '/home/jovyan/data/ZikaGlioblastomas/tic-527/study5953-tic527-star-fc-genecounts.txt'
+input_file = '/home/jovyan/data/HB_ZIK/HB_ZIK/study5953-zika-star-genecounts.txt'
 counts_matrix = pd.read_csv(input_file, sep='\t')
 counts_matrix = counts_matrix.iloc[0:-4,:]
 genes = counts_matrix.iloc[:,0]
