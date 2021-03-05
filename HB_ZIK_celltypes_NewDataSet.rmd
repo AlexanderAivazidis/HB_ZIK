@@ -29,12 +29,12 @@ library(EnsDb.Hsapiens.v75)
 library(rhdf5)
 library(dplyr)
 library(ggplot2)
-#library(infercnv)
 ```
 
 Prior to this analysis we processed the raw sequencing data with cellranger/STAR aligner and ran an algorithm called CellBender on it to remove ambient RNA.
 
 Here I 1.) load the data 2.) change the gene identifiers from ensemble ids to symbols 3.) construct a metadata matrix (with donor information, Zika exposure etc.)  4.) put the data and metadata into a Seurat object. 5.) load mitochondrial genes from a database for later use 6.) Remove doublets, by loading the doublet scores I got from an algorithm (called scrublet) I ran on the data before.
+
 ```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE}
 setwd('/home/jovyan/HB_ZIK/')
 # glioblastoma_counts = read.delim('../data/HB_ZIK/HB_ZIK/study5953-zika-star-genecounts.txt', row.names = 1)
@@ -102,7 +102,7 @@ setwd('/home/jovyan/HB_ZIK/')
 # Glioblastoma$Patient = glioblastoma_metadata$Patient
 # Glioblastoma$percent.mt = percent.mt
 # saveRDS(Glioblastoma, file = "../data/HB_ZIK/HB_ZIK/zikaGlioblastomas_SeuratObject.rds")
-Glioblastoma = readRDS("../data/ZikaGlioblastomas/zikaGlioblastomas_SeuratObject.rds")
+Glioblastoma = readRDS("../data/jhubData/HB_ZIK/HB_ZIK/zikaGlioblastomas_SeuratObject.rds")
 # Glioblastoma = Glioblastoma[,!is.na(Glioblastoma$Patient)]
 # Glioblastoma = Glioblastoma[,Glioblastoma$Patient != '46']
 ```
@@ -127,12 +127,11 @@ Glioblastoma.list[[i]] <- subset(Glioblastoma.list[[i]], subset = nFeature_RNA >
 VlnPlot(Glioblastoma.list[[i]], features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, group.by = 'Patient')
 ```
 
-The following normalizes, scales and select 2000 particularly variable genes for the 10x data: 
-
 ```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
 Glioblastoma.10x = SplitObject(Glioblastoma.list[[2]], split.by = 'Patient')
 for (i in 1:4){
-Glioblastoma.10x[[i]] <- NormalizeData(Glioblastoma.10x[[i]], normalization.method = "LogNormalize", scale.factor = 10000)
+# To be consistent with the Neftel paper use a scale.factor of 100000:
+Glioblastoma.10x[[i]] <- NormalizeData(Glioblastoma.10x[[i]], normalization.method = "LogNormalize", scale.factor = 100000)
 Glioblastoma.10x[[i]] <- FindVariableFeatures(Glioblastoma.10x[[i]], selection.method = "vst", nfeatures = 2000)
 top25 <- head(VariableFeatures(Glioblastoma.10x[[i]]), 25)
 plot1 <- VariableFeaturePlot(Glioblastoma.10x[[i]])
@@ -140,6 +139,13 @@ plot2 <- LabelPoints(plot = plot1, points = top25, repel = TRUE)
 CombinePlots(plots = list(plot1, plot2))
 all.genes <- rownames(Glioblastoma.10x[[i]])
 Glioblastoma.10x[[i]] <- ScaleData(Glioblastoma.10x[[i]], features = all.genes)
+
+# To be consistent with the Neftel paper, use log2 normalization:
+
+for (i in 1:length(Glioblastoma.10x)){
+Glioblastoma.10x[[i]] = SetAssayData(object = Glioblastoma.10x[[i]], slot = "data", new.data = log2(exp(as.matrix(GetAssayData(object = Glioblastoma.10x[[i]], slot = "data")))))
+}
+
 }
 ```
 
@@ -150,7 +156,7 @@ Glioblastoma.SmartSeq = SplitObject(Glioblastoma.list[[1]], split.by = 'Patient'
 rm(Glioblastoma)
 rm(Glioblastoma.list)
 for (i in 1:length(Glioblastoma.SmartSeq)){
-Glioblastoma.SmartSeq[[i]] <- NormalizeData(Glioblastoma.SmartSeq[[i]], normalization.method = "LogNormalize", scale.factor = 10000)
+Glioblastoma.SmartSeq[[i]] <- NormalizeData(Glioblastoma.SmartSeq[[i]], normalization.method = "LogNormalize", scale.factor = 100000)
 Glioblastoma.SmartSeq[[i]] <- FindVariableFeatures(Glioblastoma.SmartSeq[[i]], selection.method = "vst", nfeatures = 2000)
 top25 <- head(VariableFeatures(Glioblastoma.SmartSeq[[i]]), 25)
 plot1 <- VariableFeaturePlot(Glioblastoma.SmartSeq[[i]])
@@ -158,10 +164,19 @@ plot2 <- LabelPoints(plot = plot1, points = top25, repel = TRUE)
 CombinePlots(plots = list(plot1, plot2))
 all.genes <- rownames(Glioblastoma.SmartSeq[[i]])
 Glioblastoma.SmartSeq[[i]] <- ScaleData(Glioblastoma.SmartSeq[[i]], features = all.genes)
+
+# To be consistent with the Neftel paper, use log2 normalization:
+
+for (i in 1:length(Glioblastoma.SmartSeq)){
+Glioblastoma.SmartSeq[[i]] = SetAssayData(object = Glioblastoma.SmartSeq[[i]], slot = "data", new.data = log2(exp(as.matrix(GetAssayData(object = Glioblastoma.SmartSeq[[i]], slot = "data")))))
+}
+
+
+
 }
 ```
 
-Calculate principal components:
+Calculate principal components (10X):
 
 ```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
 for (i in 1:4){
@@ -224,6 +239,204 @@ Find and visualize top cluster markers (we now choose to omit this step):
 # print(DoHeatmap(Glioblastoma.10x[[i]], features = top10$gene, cells = 1:dim(Glioblastoma.10x[[i]])[2] + NoLegend()) + 
 #     theme(text = element_text(size = 5))) 
 # }
+
+```
+
+Calculate a module score for each cell using the method in the Neftel 2019 paper.
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+# Load Neftel modules:
+
+options(stringsAsFactors = FALSE)
+modules = read.delim('/home/jovyan/HB_ZIK/1-s2.0-S0092867419306877-mmc2.csv', skip = 4, sep = ',')
+
+MESlike = c(modules['MES2'][modules['MES2'] != ''], modules['MES1'][modules['MES1'] != ''])
+AClike = modules['AC'][modules['AC'] != '']
+OPClike = modules['OPC'][modules['OPC'] != '']
+NPClike = c(modules['NPC2'][modules['NPC2'] != ''], modules['NPC1'][modules['NPC1'] != ''])
+
+## 10x ##
+
+for (i in 1:length(Glioblastoma.10x)){
+ 
+# Again to be consistent with the Neftel paper note which genes have more than 4 average log2 counts:
+
+normCounts_10X = 2^(as.matrix(GetAssayData(object = Glioblastoma.10x[[i]], slot = "data")))
+             
+average_10X = log2(rowMeans(normCounts_10X))
+keepGenes_10X = average_10X > 4
+rm(average_10X, normCounts_10X)
+
+# Define relative expression:
+
+meanExpression_10x = rowMeans(as.matrix(GetAssayData(object = Glioblastoma.10x[[i]], slot = "data")))[keepGenes_10X]
+
+relativeExpression_10x = as.matrix(GetAssayData(object = Glioblastoma.10x[[i]], slot = "data"))[keepGenes_10X,]-meanExpression_10x 
+
+# Bin genes into 30 groups based on expression:
+
+b = seq(from = min(meanExpression_10x)-0.0001, to = max(meanExpression_10x)+0.0001, length.out = 30)
+bins = .bincode(meanExpression_10x, b, TRUE)
+names(bins) = names(meanExpression_10x)
+
+# Subset signatures to include only available genes:
+
+MESlike_10x = MESlike[MESlike %in% names(meanExpression_10x)]
+AClike_10x = AClike[AClike %in% names(meanExpression_10x)]
+OPClike_10x = OPClike[OPClike %in% names(meanExpression_10x)]
+NPClike_10x = NPClike[NPClike %in% names(meanExpression_10x)]
+
+# Extract control gene set for each signature:
+MESlike_bins = bins[MESlike_10x]
+AClike_bins = bins[AClike_10x]
+OPClike_bins = bins[OPClike_10x]
+NPClike_bins = bins[NPClike_10x]
+
+MESlike_control = unname(unlist(lapply(MESlike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
+AClike_control = unname(unlist(lapply(AClike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
+OPClike_control = unname(unlist(lapply(OPClike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
+NPClike_control = unname(unlist(lapply(NPClike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
+
+# Calculate score:
+
+MESlike_score = colMeans(relativeExpression_10x[MESlike_10x,]) - colMeans(relativeExpression_10x[MESlike_control,]) 
+AClike_score = colMeans(relativeExpression_10x[AClike_10x,]) - colMeans(relativeExpression_10x[AClike_control,]) 
+OPClike_score = colMeans(relativeExpression_10x[OPClike_10x,]) - colMeans(relativeExpression_10x[OPClike_control,]) 
+NPClike_score = colMeans(relativeExpression_10x[NPClike_10x,]) - colMeans(relativeExpression_10x[NPClike_control,]) 
+
+# Add to object:
+
+Glioblastoma.10x[[i]]$MESlike_score = MESlike_score
+Glioblastoma.10x[[i]]$AClike_score = AClike_score
+Glioblastoma.10x[[i]]$OPClike_score = OPClike_score
+Glioblastoma.10x[[i]]$NPClike_score = NPClike_score
+  
+}
+
+## SmartSeq ##
+
+for (i in 1:length(Glioblastoma.SmartSeq)){
+ 
+# Again to be consistent with the Neftel paper note which genes have more than 4 average log2 counts:
+
+normCounts_SmartSeq = 2^(as.matrix(GetAssayData(object = Glioblastoma.SmartSeq[[i]], slot = "data")))
+             
+average_SmartSeq = log2(rowMeans(normCounts_SmartSeq))
+keepGenes_SmartSeq = average_SmartSeq > 4
+rm(average_SmartSeq, normCounts_SmartSeq)
+
+# Define relative expression:
+
+meanExpression_SmartSeq = rowMeans(as.matrix(GetAssayData(object = Glioblastoma.SmartSeq[[i]], slot = "data")))[keepGenes_SmartSeq]
+
+relativeExpression_SmartSeq = as.matrix(GetAssayData(object = Glioblastoma.SmartSeq[[i]], slot = "data"))[keepGenes_SmartSeq,]-meanExpression_SmartSeq 
+
+# Bin genes into 30 groups based on expression:
+
+b = seq(from = min(meanExpression_SmartSeq)-0.0001, to = max(meanExpression_SmartSeq)+0.0001, length.out = 30)
+bins = .bincode(meanExpression_SmartSeq, b, TRUE)
+names(bins) = names(meanExpression_SmartSeq)
+
+# Subset signatures to include only available genes:
+
+MESlike_SmartSeq = MESlike[MESlike %in% names(meanExpression_SmartSeq)]
+AClike_SmartSeq = AClike[AClike %in% names(meanExpression_SmartSeq)]
+OPClike_SmartSeq = OPClike[OPClike %in% names(meanExpression_SmartSeq)]
+NPClike_SmartSeq = NPClike[NPClike %in% names(meanExpression_SmartSeq)]
+
+# Extract control gene set for each signature:
+MESlike_bins = bins[MESlike_SmartSeq]
+AClike_bins = bins[AClike_SmartSeq]
+OPClike_bins = bins[OPClike_SmartSeq]
+NPClike_bins = bins[NPClike_SmartSeq]
+
+MESlike_control = unname(unlist(lapply(MESlike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
+AClike_control = unname(unlist(lapply(AClike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
+OPClike_control = unname(unlist(lapply(OPClike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
+NPClike_control = unname(unlist(lapply(NPClike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
+
+# Calculate score:
+
+MESlike_score = colMeans(relativeExpression_SmartSeq[MESlike_SmartSeq,]) - colMeans(relativeExpression_SmartSeq[MESlike_control,]) 
+AClike_score = colMeans(relativeExpression_SmartSeq[AClike_SmartSeq,]) - colMeans(relativeExpression_SmartSeq[AClike_control,]) 
+OPClike_score = colMeans(relativeExpression_SmartSeq[OPClike_SmartSeq,]) - colMeans(relativeExpression_SmartSeq[OPClike_control,]) 
+NPClike_score = colMeans(relativeExpression_SmartSeq[NPClike_SmartSeq,]) - colMeans(relativeExpression_SmartSeq[NPClike_control,]) 
+
+# Add to object:
+
+Glioblastoma.SmartSeq[[i]]$MESlike_score = MESlike_score
+Glioblastoma.SmartSeq[[i]]$AClike_score = AClike_score
+Glioblastoma.SmartSeq[[i]]$OPClike_score = OPClike_score
+Glioblastoma.SmartSeq[[i]]$NPClike_score = NPClike_score
+  
+}
+
+```
+
+Visualize distribution of scores in 10x and SmartSeq:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+# Make paired plots for donors 45 and 46:
+
+# par(mfrow=c(3,4))
+# Parent <- data.frame(length = Glioblastoma.10x$`45`$MESlike_score)
+# Zika <- data.frame(length = Glioblastoma.SmartSeq$`45`$MESlike_score)
+# Parent$Origin <- 'Parent 10X Whole Tumour'
+# Zika$Origin <- 'Zika mCherry Positives'
+# scores <- rbind(Parent, Zika)
+# 
+# ggplot(scores, aes(length, fill = Origin)) + 
+#    geom_histogram(alpha = 0.5, aes(y = ..density..), position = 'identity')
+
+par(mfrow=c(3,4))
+
+# 45
+
+hist(Glioblastoma.10x$`45`$MESlike_score, col='skyblue',border=F, freq = F, xlab = 'MESlike score', main = 'Patient 45')
+hist(Glioblastoma.SmartSeq$`45`$MESlike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+hist(Glioblastoma.10x$`45`$OPClike_score, col='skyblue',border=F, freq = F, xlab = 'OPClike score', main = 'Patient 45')
+hist(Glioblastoma.SmartSeq$`45`$OPClike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+hist(Glioblastoma.10x$`45`$AClike_score, col='skyblue',border=F, freq = F, xlab = 'AClike score', main = 'Patient 45')
+hist(Glioblastoma.SmartSeq$`45`$AClike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+hist(Glioblastoma.10x$`45`$NPClike_score, col='skyblue',border=F, freq = F, xlab = 'NPClike score', main = 'Patient 45')
+hist(Glioblastoma.SmartSeq$`45`$NPClike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+# 46
+
+hist(Glioblastoma.10x$`46`$MESlike_score, col='skyblue',border=F, freq = F, xlab = 'MESlike score', main = 'Patient 46')
+hist(Glioblastoma.SmartSeq$`45`$MESlike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+hist(Glioblastoma.10x$`46`$OPClike_score, col='skyblue',border=F, freq = F, xlab = 'OPClike score', main = 'Patient 46')
+hist(Glioblastoma.SmartSeq$`45`$OPClike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+hist(Glioblastoma.10x$`46`$AClike_score, col='skyblue',border=F, freq = F, xlab = 'AClike score', main = 'Patient 46')
+hist(Glioblastoma.SmartSeq$`45`$AClike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+hist(Glioblastoma.10x$`46`$NPClike_score, col='skyblue',border=F, freq = F, xlab = 'NPClike score', main = 'Patient 46')
+hist(Glioblastoma.SmartSeq$`45`$NPClike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+# 42,43,45,46 in 10x vs 48,50,51,54 in SmartSeq
+
+hist(c(Glioblastoma.10x$`42`$MESlike_score, Glioblastoma.10x$`43`$MESlike_score,Glioblastoma.10x$`45`$MESlike_score, Glioblastoma.10x$`46`$MESlike_score), col='skyblue',border=F, freq = F, xlab = 'MESlike score', main = 'Patients 42,43,45,46 vs 48,50,51,54')
+hist(c(Glioblastoma.SmartSeq$`48`$MESlike_score, Glioblastoma.SmartSeq$`50`$MESlike_score,
+       Glioblastoma.SmartSeq$`51`$MESlike_score,Glioblastoma.SmartSeq$`54`$MESlike_score), add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+hist(c(Glioblastoma.10x$`42`$OPClike_score, Glioblastoma.10x$`43`$OPClike_score,Glioblastoma.10x$`45`$OPClike_score, Glioblastoma.10x$`46`$OPClike_score), col='skyblue',border=F, freq = F, xlab = 'OPClike score', main = 'Patients 42,43,45,46 vs 48,50,51,54')
+hist(c(Glioblastoma.SmartSeq$`48`$OPClike_score, Glioblastoma.SmartSeq$`50`$OPClike_score,
+       Glioblastoma.SmartSeq$`51`$OPClike_score,Glioblastoma.SmartSeq$`54`$OPClike_score), add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+hist(c(Glioblastoma.10x$`42`$AClike_score, Glioblastoma.10x$`43`$AClike_score,Glioblastoma.10x$`45`$AClike_score, Glioblastoma.10x$`46`$AClike_score), col='skyblue',border=F, freq = F, xlab = 'AClike score', main = 'Patients 42,43,45,46 vs 48,50,51,54')
+hist(c(Glioblastoma.SmartSeq$`48`$AClike_score, Glioblastoma.SmartSeq$`50`$AClike_score,
+       Glioblastoma.SmartSeq$`51`$AClike_score,Glioblastoma.SmartSeq$`54`$AClike_score), add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+hist(c(Glioblastoma.10x$`42`$NPClike_score, Glioblastoma.10x$`43`$NPClike_score,Glioblastoma.10x$`45`$NPClike_score, Glioblastoma.10x$`46`$NPClike_score), col='skyblue',border=F, freq = F, xlab = 'NPClike score', main = 'Patients 42,43,45,46 vs 48,50,51,54')
+hist(c(Glioblastoma.SmartSeq$`48`$NPClike_score, Glioblastoma.SmartSeq$`50`$NPClike_score,
+       Glioblastoma.SmartSeq$`51`$NPClike_score,Glioblastoma.SmartSeq$`54`$NPClike_score), add=T,col=scales::alpha('red',.5),border=F, freq = F)
 
 ```
 
