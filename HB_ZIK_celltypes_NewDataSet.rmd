@@ -127,122 +127,64 @@ Glioblastoma.list[[i]] <- subset(Glioblastoma.list[[i]], subset = nFeature_RNA >
 VlnPlot(Glioblastoma.list[[i]], features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, group.by = 'Patient')
 ```
 
+Check if 10X data from all patients can be analysed together of if there are batch effects:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+# To be consistent with the Neftel paper use a scale.factor of 100000:
+Glioblastoma.list[[2]] <- NormalizeData(Glioblastoma.list[[2]], normalization.method = "LogNormalize", scale.factor = 100000)
+Glioblastoma.list[[2]] <- FindVariableFeatures(Glioblastoma.list[[2]], selection.method = "vst", nfeatures = 2000)
+top25 <- head(VariableFeatures(Glioblastoma.list[[2]]), 25)
+plot1 <- VariableFeaturePlot(Glioblastoma.list[[2]])
+plot2 <- LabelPoints(plot = plot1, points = top25, repel = TRUE)
+CombinePlots(plots = list(plot1, plot2))
+all.genes <- rownames(Glioblastoma.list[[2]])
+Glioblastoma.list[[2]] <- ScaleData(Glioblastoma.list[[2]], features = all.genes)
+Glioblastoma.list[[2]] <- RunPCA(Glioblastoma.list[[2]], features = VariableFeatures(object = Glioblastoma.list[[2]]))
+n_dimensions = 15
+Glioblastoma.list[[2]] <- FindNeighbors(Glioblastoma.list[[2]], dims = 1:n_dimensions)
+Glioblastoma.list[[2]] <- FindClusters(Glioblastoma.list[[2]], resolution = 0.5)
+Glioblastoma.list[[2]] <- RunUMAP(Glioblastoma.list[[2]], dims = 1:n_dimensions)
+print(DimPlot(Glioblastoma.list[[i]], reduction = "umap", group.by = "Patient"))
+```
+
+It seems like there are batch effects, so let's integrate this data:
+
 ```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
 Glioblastoma.10x = SplitObject(Glioblastoma.list[[2]], split.by = 'Patient')
-for (i in 1:4){
-# To be consistent with the Neftel paper use a scale.factor of 100000:
-Glioblastoma.10x[[i]] <- NormalizeData(Glioblastoma.10x[[i]], normalization.method = "LogNormalize", scale.factor = 100000)
-Glioblastoma.10x[[i]] <- FindVariableFeatures(Glioblastoma.10x[[i]], selection.method = "vst", nfeatures = 2000)
-top25 <- head(VariableFeatures(Glioblastoma.10x[[i]]), 25)
-plot1 <- VariableFeaturePlot(Glioblastoma.10x[[i]])
-plot2 <- LabelPoints(plot = plot1, points = top25, repel = TRUE)
-CombinePlots(plots = list(plot1, plot2))
-all.genes <- rownames(Glioblastoma.10x[[i]])
-Glioblastoma.10x[[i]] <- ScaleData(Glioblastoma.10x[[i]], features = all.genes)
+glioblastoma.anchors <- FindIntegrationAnchors(object.list = Glioblastoma.10x, dims = 1:n_dimensions)
+glioblastoma.10x.integrated <- IntegrateData(anchorset = glioblastoma.anchors, dims = 1:n_dimensions)
+
+DefaultAssay(glioblastoma.10x.integrated) <- "integrated"
+
+# Run the standard workflow for visualization and clustering
+glioblastoma.10x.integrated <- ScaleData(glioblastoma.10x.integrated, verbose = FALSE)
+glioblastoma.10x.integrated <- RunPCA(glioblastoma.10x.integrated, npcs = n_dimensions, verbose = FALSE)
+glioblastoma.10x.integrated <- RunUMAP(glioblastoma.10x.integrated, reduction = "pca", dims = 1:n_dimensions)
+DimPlot(glioblastoma.10x.integrated, reduction = "umap", group.by = "Patient")
+```
+
+And let's also integrate the SmartSeq data:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+glioblastoma.anchors <- FindIntegrationAnchors(object.list = c(glioblastoma.10x.integrated, Glioblastoma.list[[1]]), dims = 1:n_dimensions)
+glioblastoma.integrated <- IntegrateData(anchorset = glioblastoma.anchors, dims = 1:n_dimensions)
+DefaultAssay(glioblastoma.integrated) <- "integrated"
+
+# Run the standard workflow for visualization and clustering
+glioblastoma.integrated <- ScaleData(glioblastoma.integrated, verbose = FALSE, normalization.method = "LogNormalize", scale.factor = 100000)
+glioblastoma.integrated <- RunPCA(glioblastoma.integrated, npcs = n_dimensions, verbose = FALSE)
+glioblastoma.integrated <- RunUMAP(glioblastoma.integrated, reduction = "pca", dims = 1:n_dimensions)
+DimPlot(glioblastoma.integrated, reduction = "umap", group.by = "Technology")
 
 # To be consistent with the Neftel paper, use log2 normalization:
 
-for (i in 1:length(Glioblastoma.10x)){
-Glioblastoma.10x[[i]] = SetAssayData(object = Glioblastoma.10x[[i]], slot = "data", new.data = log2(exp(as.matrix(GetAssayData(object = Glioblastoma.10x[[i]], slot = "data")))))
-}
-
-}
-```
-
-The following normalizes, scales and select 2000 particularly variable genes for the SmartSeq data: 
-
-```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
-Glioblastoma.SmartSeq = SplitObject(Glioblastoma.list[[1]], split.by = 'Patient')
-rm(Glioblastoma)
-rm(Glioblastoma.list)
-for (i in 1:length(Glioblastoma.SmartSeq)){
-Glioblastoma.SmartSeq[[i]] <- NormalizeData(Glioblastoma.SmartSeq[[i]], normalization.method = "LogNormalize", scale.factor = 100000)
-Glioblastoma.SmartSeq[[i]] <- FindVariableFeatures(Glioblastoma.SmartSeq[[i]], selection.method = "vst", nfeatures = 2000)
-top25 <- head(VariableFeatures(Glioblastoma.SmartSeq[[i]]), 25)
-plot1 <- VariableFeaturePlot(Glioblastoma.SmartSeq[[i]])
-plot2 <- LabelPoints(plot = plot1, points = top25, repel = TRUE)
-CombinePlots(plots = list(plot1, plot2))
-all.genes <- rownames(Glioblastoma.SmartSeq[[i]])
-Glioblastoma.SmartSeq[[i]] <- ScaleData(Glioblastoma.SmartSeq[[i]], features = all.genes)
-
-# To be consistent with the Neftel paper, use log2 normalization:
-
-for (i in 1:length(Glioblastoma.SmartSeq)){
-Glioblastoma.SmartSeq[[i]] = SetAssayData(object = Glioblastoma.SmartSeq[[i]], slot = "data", new.data = log2(exp(as.matrix(GetAssayData(object = Glioblastoma.SmartSeq[[i]], slot = "data")))))
-}
-
-
-
-}
-```
-
-Calculate principal components (10X):
-
-```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
-for (i in 1:4){
-Glioblastoma.10x[[i]] <- RunPCA(Glioblastoma.10x[[i]], features = VariableFeatures(object = Glioblastoma.10x[[i]]))
-print(Glioblastoma.10x[[i]][["pca"]], dims = 1:5, nfeatures = 5)
-VizDimLoadings(Glioblastoma.10x[[i]], dims = 1:2, reduction = "pca")
-DimPlot(Glioblastoma.10x[[i]], reduction = "pca")
-DimHeatmap(Glioblastoma.10x[[i]], dims = 1, cells = round(dim(Glioblastoma.10x[[i]])[2])/2, balanced = TRUE)
-DimHeatmap(Glioblastoma.10x[[i]], dims = 1:15, cells = round(dim(Glioblastoma.10x[[i]])[2])/2, balanced = TRUE)
-}
-```
-
-Based on the JackStraw procedure I select 15 PCs for further analysis in both cases:
-
-```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
-for (i in 1){
-# Glioblastoma.10x[[i]] <- JackStraw(Glioblastoma.10x[[i]], num.replicate = 100)
-# Glioblastoma.10x[[i]] <- ScoreJackStraw(Glioblastoma.10x[[i]], dims = 1:20)
-# JackStrawPlot(Glioblastoma.10x[[i]], dims = 1:20)
-# ElbowPlot(Glioblastoma.10x[[i]], ndims = 40)
-n_dimensions = 15
-}
-```
-
-This is the clustering step:
-
-```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
-for (i in 1:4){
-Glioblastoma.10x[[i]] <- FindNeighbors(Glioblastoma.10x[[i]], dims = 1:n_dimensions)
-Glioblastoma.10x[[i]] <- FindClusters(Glioblastoma.10x[[i]], resolution = 0.5)
-head(Idents(Glioblastoma.10x[[i]]), 5)
-}
-```
-
-Clusters roughly agree with visual seperation on a UMAP plot:
-
-```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
-for (i in 1:4){
-Glioblastoma.10x[[i]] <- RunUMAP(Glioblastoma.10x[[i]], dims = 1:n_dimensions)
-print(DimPlot(Glioblastoma.10x[[i]], reduction = "umap", label = TRUE))
-}
-```
-
-Find and visualize top cluster markers (we now choose to omit this step):
-
-```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
-# for (i in 1:3){
-# markers <- FindAllMarkers(Glioblastoma.10x[[i]], only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
-# saveRDS(markers, paste('markers_10xClusters_patient', names(Glioblastoma.10x)[i], '.rds', sep = ''))
-# top = markers %>% group_by(cluster) %>% top_n(n = 1, wt = avg_logFC)
-# pdf(paste('figures/FeaturePlotUnbiasedClusterMarkers_10x_Patient', names(Glioblastoma.10x)[i], '.pdf', sep = ''), width = 20, height = 10)
-# print(FeaturePlot(Glioblastoma.10x[[i]], features = top$gene))
-# dev.off()
-# print(FeaturePlot(Glioblastoma.10x[[i]], features = top$gene))
-# top10<- markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logFC)
-# pdf(paste('figures/HeatmapPlotUnbiasedClusterMarkers_10x_Patient', names(Glioblastoma.10x)[i], '.pdf', sep = ''), width = 20, height = 10)
-# print(DoHeatmap(Glioblastoma.10x[[i]], features = top10$gene, cells = 1:dim(Glioblastoma.10x[[i]])[2] + NoLegend()) + 
-#     theme(text = element_text(size = 5)))
-# dev.off()
-# print(DoHeatmap(Glioblastoma.10x[[i]], features = top10$gene, cells = 1:dim(Glioblastoma.10x[[i]])[2] + NoLegend()) + 
-#     theme(text = element_text(size = 5))) 
-# }
+glioblastoma.integrated = SetAssayData(object = glioblastoma.integrated, slot = "data", new.data = log2(exp(as.matrix(GetAssayData(object = glioblastoma.integrated, slot = "data")))))
 
 ```
 
-Calculate a module score for each cell using the method in the Neftel 2019 paper.
+This did not work great but is the best we can do.
+
+Calculate a module score for each cell using the method in the Neftel 2019 paper and do this on the integrated data:
 
 ```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
 
@@ -255,14 +197,10 @@ MESlike = c(modules['MES2'][modules['MES2'] != ''], modules['MES1'][modules['MES
 AClike = modules['AC'][modules['AC'] != '']
 OPClike = modules['OPC'][modules['OPC'] != '']
 NPClike = c(modules['NPC2'][modules['NPC2'] != ''], modules['NPC1'][modules['NPC1'] != ''])
-
-## 10x ##
-
-for (i in 1:length(Glioblastoma.10x)){
  
 # Again to be consistent with the Neftel paper note which genes have more than 4 average log2 counts:
 
-normCounts_10X = 2^(as.matrix(GetAssayData(object = Glioblastoma.10x[[i]], slot = "data")))
+normCounts_10X = 2^(as.matrix(GetAssayData(object = glioblastoma.integrated, slot = "data")))
              
 average_10X = log2(rowMeans(normCounts_10X))
 keepGenes_10X = average_10X > 4
@@ -270,18 +208,16 @@ rm(average_10X, normCounts_10X)
 
 # Define relative expression:
 
-meanExpression_10x = rowMeans(as.matrix(GetAssayData(object = Glioblastoma.10x[[i]], slot = "data")))[keepGenes_10X]
+meanExpression_10x = rowMeans(as.matrix(GetAssayData(object = glioblastoma.integrated, slot = "data")))[keepGenes_10X]
 
-relativeExpression_10x = as.matrix(GetAssayData(object = Glioblastoma.10x[[i]], slot = "data"))[keepGenes_10X,]-meanExpression_10x 
+relativeExpression_10x = as.matrix(GetAssayData(object = glioblastoma.integrated, slot = "data"))[keepGenes_10X,]-meanExpression_10x 
 
 # Bin genes into 30 groups based on expression:
-
 b = seq(from = min(meanExpression_10x)-0.0001, to = max(meanExpression_10x)+0.0001, length.out = 30)
 bins = .bincode(meanExpression_10x, b, TRUE)
 names(bins) = names(meanExpression_10x)
 
 # Subset signatures to include only available genes:
-
 MESlike_10x = MESlike[MESlike %in% names(meanExpression_10x)]
 AClike_10x = AClike[AClike %in% names(meanExpression_10x)]
 OPClike_10x = OPClike[OPClike %in% names(meanExpression_10x)]
@@ -307,76 +243,20 @@ NPClike_score = colMeans(relativeExpression_10x[NPClike_10x,]) - colMeans(relati
 
 # Add to object:
 
-Glioblastoma.10x[[i]]$MESlike_score = MESlike_score
-Glioblastoma.10x[[i]]$AClike_score = AClike_score
-Glioblastoma.10x[[i]]$OPClike_score = OPClike_score
-Glioblastoma.10x[[i]]$NPClike_score = NPClike_score
-  
-}
-
-## SmartSeq ##
-
-for (i in 1:length(Glioblastoma.SmartSeq)){
- 
-# Again to be consistent with the Neftel paper note which genes have more than 4 average log2 counts:
-
-normCounts_SmartSeq = 2^(as.matrix(GetAssayData(object = Glioblastoma.SmartSeq[[i]], slot = "data")))
-             
-average_SmartSeq = log2(rowMeans(normCounts_SmartSeq))
-keepGenes_SmartSeq = average_SmartSeq > 4
-rm(average_SmartSeq, normCounts_SmartSeq)
-
-# Define relative expression:
-
-meanExpression_SmartSeq = rowMeans(as.matrix(GetAssayData(object = Glioblastoma.SmartSeq[[i]], slot = "data")))[keepGenes_SmartSeq]
-
-relativeExpression_SmartSeq = as.matrix(GetAssayData(object = Glioblastoma.SmartSeq[[i]], slot = "data"))[keepGenes_SmartSeq,]-meanExpression_SmartSeq 
-
-# Bin genes into 30 groups based on expression:
-
-b = seq(from = min(meanExpression_SmartSeq)-0.0001, to = max(meanExpression_SmartSeq)+0.0001, length.out = 30)
-bins = .bincode(meanExpression_SmartSeq, b, TRUE)
-names(bins) = names(meanExpression_SmartSeq)
-
-# Subset signatures to include only available genes:
-
-MESlike_SmartSeq = MESlike[MESlike %in% names(meanExpression_SmartSeq)]
-AClike_SmartSeq = AClike[AClike %in% names(meanExpression_SmartSeq)]
-OPClike_SmartSeq = OPClike[OPClike %in% names(meanExpression_SmartSeq)]
-NPClike_SmartSeq = NPClike[NPClike %in% names(meanExpression_SmartSeq)]
-
-# Extract control gene set for each signature:
-MESlike_bins = bins[MESlike_SmartSeq]
-AClike_bins = bins[AClike_SmartSeq]
-OPClike_bins = bins[OPClike_SmartSeq]
-NPClike_bins = bins[NPClike_SmartSeq]
-
-MESlike_control = unname(unlist(lapply(MESlike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
-AClike_control = unname(unlist(lapply(AClike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
-OPClike_control = unname(unlist(lapply(OPClike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
-NPClike_control = unname(unlist(lapply(NPClike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
-
-# Calculate score:
-
-MESlike_score = colMeans(relativeExpression_SmartSeq[MESlike_SmartSeq,]) - colMeans(relativeExpression_SmartSeq[MESlike_control,]) 
-AClike_score = colMeans(relativeExpression_SmartSeq[AClike_SmartSeq,]) - colMeans(relativeExpression_SmartSeq[AClike_control,]) 
-OPClike_score = colMeans(relativeExpression_SmartSeq[OPClike_SmartSeq,]) - colMeans(relativeExpression_SmartSeq[OPClike_control,]) 
-NPClike_score = colMeans(relativeExpression_SmartSeq[NPClike_SmartSeq,]) - colMeans(relativeExpression_SmartSeq[NPClike_control,]) 
-
-# Add to object:
-
-Glioblastoma.SmartSeq[[i]]$MESlike_score = MESlike_score
-Glioblastoma.SmartSeq[[i]]$AClike_score = AClike_score
-Glioblastoma.SmartSeq[[i]]$OPClike_score = OPClike_score
-Glioblastoma.SmartSeq[[i]]$NPClike_score = NPClike_score
-  
-}
+glioblastoma.integrated$MESlike_score = MESlike_score
+glioblastoma.integrated$AClike_score = AClike_score
+glioblastoma.integrated$OPClike_score = OPClike_score
+glioblastoma.integrated$NPClike_score = NPClike_score
 
 ```
 
 Visualize distribution of scores in 10x and SmartSeq:
 
 ```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+Glioblastoma.list = SplitObject(glioblastoma.integrated, split.by = 'Technology')
+Glioblastoma.10x = SplitObject(Glioblastoma.list[[1]], split.by = 'Patient')
+Glioblastoma.SmartSeq = SplitObject(Glioblastoma.list[[2]], split.by = 'Patient')
 
 # Make paired plots for donors 45 and 46:
 
