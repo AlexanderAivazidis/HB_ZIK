@@ -1,0 +1,1134 @@
+### Analyze Zika infected Glioblastoma data:
+
+---
+  output:
+  html_document: default
+pdf_document: default
+---
+  ### Finding gene modules that make cells susceptible to Zika infection
+  
+  ---
+  title: "Finding gene modules that make cells susceptible to Zika infection"
+output:
+  html_document: default
+github_document: default
+fig_width: 12
+fig_height: 4 
+---
+  
+```{r include = FALSE}
+### Load data and packages
+knitr::opts_chunk$set(fig.width=24, fig.height=8) 
+```
+
+Load the required R libraries:
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE}
+library(Seurat)
+library(Matrix)
+library(EnsDb.Hsapiens.v75)
+library(rhdf5)
+library(dplyr)
+library(ggplot2)
+```
+
+Prior to this analysis we processed the raw sequencing data with cellranger/STAR aligner and ran an algorithm called CellBender on it to remove ambient RNA.
+
+Here I 1.) load the data 2.) change the gene identifiers from ensemble ids to symbols 3.) construct a metadata matrix (with donor information, Zika exposure etc.)  4.) put the data and metadata into a Seurat object. 5.) load mitochondrial genes from a database for later use 6.) Remove doublets, by loading the doublet scores I got from an algorithm (called scrublet) I ran on the data before.
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE}
+setwd('/home/jovyan/HB_ZIK/')
+# glioblastoma_counts = read.delim('../data/HB_ZIK/HB_ZIK/study5953-zika-star-genecounts.txt', row.names = 1)
+# glioblastoma_counts = glioblastoma_counts[!rownames(glioblastoma_counts) %in% c("N_ambiguous", "N_multimapping" , "N_noFeature" ,
+#                                                                                 "N_unmapped"),]
+# # glioblastoma_counts = read.delim('../data/ZikaGlioblastomas/tic-527/study5953-tic527-star-fc-genecounts.txt', row.names = 1)
+# manifest1 = read.delim('../HB_ZIK/5953stdy_manifest_14517_170919_HB_ZIK_046_048_050_051.csv', sep = ',', skip = 8)
+# manifest2 = read.delim('../HB_ZIK/5953stdy_manifest_14797_111119_HB_ZIK_01.02.2020_updated.csv', sep = ',', skip = 8)
+# manifest1 = manifest1[manifest1$SUPPLIER.SAMPLE.NAME != "",]
+# manifest2 = manifest2[manifest2$SUPPLIER.SAMPLE.NAME != "",]
+# keepCols = colnames(manifest2)[colnames(manifest2) %in% colnames(manifest1)]
+# manifest1 = manifest1[,keepCols]
+# manifest2 = manifest2[,keepCols]
+# manifest = rbind(manifest1, manifest2)
+# scrublet_classification = read.delim('scrublet/SmartSeq_predicted_doublets.txt')
+# glioblastoma_counts = glioblastoma_counts[,scrublet_classification != 1]
+# glioblastoma_metadata = data.frame(matrix('', dim(glioblastoma_counts)[2],4))
+# colnames(glioblastoma_metadata) = c('SampleName', 'Technology', 'ZikaExposure', 'Patient')
+# glioblastoma_metadata[,1] = unlist(lapply(colnames(glioblastoma_counts), function(x) substring(x,2)))
+# glioblastoma_metadata[,2] = rep('SmartSeq', dim(glioblastoma_counts)[2])
+# glioblastoma_metadata[,3] = rep('TRUE', dim(glioblastoma_counts)[2])
+# glioblastoma_metadata[,4] = substring(manifest$SUPPLIER.SAMPLE.NAME[match(glioblastoma_metadata$SampleName, manifest$SANGER.SAMPLE.ID)], 3, 4)
+# patients = c('42','42','43', '43', '45', '45', '46', '46') # (info from sample tracker)
+# geneNames = as.matrix(read.table(paste('/home/jovyan/data/HB_ZIK/HB_ZIK/cellranger302_count_32771_5953STDY855119', as.character(1), '_GRCh38-3_0_0_premrna/filtered_feature_bc_matrix/features.tsv', sep = '')))
+# geneNames = rbind(geneNames, c("zikamcherryG", "zikamcherryG", 'Gene', 'Expression'))
+# 
+# geneOccurence = table(geneNames[,2])
+# for (gene in names(geneOccurence)){
+#   if (geneOccurence[gene] > 1){
+#     geneNames[which(geneNames[,2] == gene),2] = paste(geneNames[which(geneNames[,2] == gene),2], '(', geneNames[which(geneNames[,2] == gene),1], ')', sep = '')
+#   }
+# }
+# 
+# rownames(glioblastoma_counts) = geneNames[match(rownames(glioblastoma_counts), geneNames[,1]),2]
+# 
+# glioblastoma_counts = glioblastoma_counts[geneNames[,2],]
+# for (i in 1:8){
+#   print(i)
+#   # prefiltered count_matrix:
+#   data_subset <- as.matrix(Read10X_h5(filename = paste('../data/HB_ZIK/HB_ZIK/cellranger302_count_32771_5953STDY855119', as.character(i), '_GRCh38-3_0_0_premrna/output_filtered.h5', sep = ''), use.names = TRUE))
+#   scrublet_classification = read.delim(paste('scrublet/5953STDY855119', as.character(i), '_predicted_doublets.txt', sep = ''))
+#   print('removed doublets:')
+#   print(sum(scrublet_classification))
+#   data_subset = data_subset[,scrublet_classification != 1]
+#   sampleNames = rownames(data_subset)
+#   data_subset = rbind(data_subset, rep(0,dim(data_subset)[2]))
+#   rownames(data_subset)[length(rownames(data_subset))] = "zikamcherryG"
+#   glioblastoma_counts = cbind(glioblastoma_counts, data_subset)
+#   metadata_subset = data.frame(matrix('', dim(data_subset)[2],4))
+#   colnames(metadata_subset) = c('SampleName', 'Technology', 'ZikaExposure', 'Patient')
+#   metadata_subset[,1] = colnames(data_subset)
+#   metadata_subset[,2] = rep('10X', dim(data_subset)[2])
+#   metadata_subset[,3] = rep('FALSE', dim(data_subset)[2])
+#   metadata_subset[,4] = rep(patients[i], dim(data_subset)[2])
+#   glioblastoma_metadata = rbind(glioblastoma_metadata, metadata_subset)
+# }
+# mitogenes <- genes(EnsDb.Hsapiens.v75, filter = ~ seq_name == "MT")$gene_id
+# mitogenes = geneNames[,2][match(mitogenes, geneNames[,1])]
+# mitogenes = mitogenes[!is.na(mitogenes)]
+# percent.mt = colSums(glioblastoma_counts[rownames(glioblastoma_counts) %in% mitogenes,])/colSums(glioblastoma_counts)
+# Glioblastoma <- CreateSeuratObject(glioblastoma_counts, project = 'HB_ZIK', min.cells = 0, min.features = 0)
+# Glioblastoma$SampleName = colnames(glioblastoma_counts)
+# Glioblastoma$Technology = glioblastoma_metadata$Technology
+# Glioblastoma$ZikaExposure = glioblastoma_metadata$ZikaExposure
+# Glioblastoma$Patient = glioblastoma_metadata$Patient
+# Glioblastoma$percent.mt = percent.mt
+# saveRDS(Glioblastoma, file = "../data/HB_ZIK/HB_ZIK/zikaGlioblastomas_SeuratObject.rds")
+Glioblastoma = readRDS("../data/jhubData/HB_ZIK/HB_ZIK/zikaGlioblastomas_SeuratObject.rds")
+# Glioblastoma = Glioblastoma[,!is.na(Glioblastoma$Patient)]
+# Glioblastoma = Glioblastoma[,Glioblastoma$Patient != '46']
+```
+
+The QC plots using number of detected genes, number of counts and percent of counts coming from mitochondrial genes (as a proxy for stress), show a couple of outlier cells, which I remove:
+  
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+Glioblastoma.list <- SplitObject(Glioblastoma, split.by = 'Technology')
+i = 1
+VlnPlot(Glioblastoma.list[[i]], features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, group.by = 'Patient')
+plot1 <- FeatureScatter(Glioblastoma.list[[i]], feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot2 <- FeatureScatter(Glioblastoma.list[[i]], feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+CombinePlots(plots = list(plot1, plot2))
+Glioblastoma.list[[i]] <- subset(Glioblastoma.list[[i]], subset = nFeature_RNA > 2500 & nFeature_RNA < 12000 & nCount_RNA < 2*10^6 & percent.mt < 0.1)
+VlnPlot(Glioblastoma.list[[i]], features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, group.by = 'Patient')
+i = 2
+VlnPlot(Glioblastoma.list[[i]], features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, group.by = 'Patient')
+plot1 <- FeatureScatter(Glioblastoma.list[[i]], feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot2 <- FeatureScatter(Glioblastoma.list[[i]], feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+CombinePlots(plots = list(plot1, plot2))
+Glioblastoma.list[[i]] <- subset(Glioblastoma.list[[i]], subset = nFeature_RNA > 500 & nFeature_RNA < 5000 & nCount_RNA > 0 & nCount_RNA < 4*10^5 & percent.mt < 0.1)
+VlnPlot(Glioblastoma.list[[i]], features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, group.by = 'Patient')
+```
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+Glioblastoma.10x = SplitObject(Glioblastoma.list[[2]], split.by = 'Patient')
+for (i in 1:4){
+# To be consistent with the Neftel paper use a scale.factor of 100000:
+Glioblastoma.10x[[i]] <- NormalizeData(Glioblastoma.10x[[i]], normalization.method = "LogNormalize", scale.factor = 100000)
+Glioblastoma.10x[[i]] <- FindVariableFeatures(Glioblastoma.10x[[i]], selection.method = "vst", nfeatures = 2000)
+top25 <- head(VariableFeatures(Glioblastoma.10x[[i]]), 25)
+plot1 <- VariableFeaturePlot(Glioblastoma.10x[[i]])
+plot2 <- LabelPoints(plot = plot1, points = top25, repel = TRUE)
+CombinePlots(plots = list(plot1, plot2))
+all.genes <- rownames(Glioblastoma.10x[[i]])
+Glioblastoma.10x[[i]] <- ScaleData(Glioblastoma.10x[[i]], features = all.genes)
+
+# To be consistent with the Neftel paper, use log2 normalization:
+
+for (i in 1:length(Glioblastoma.10x)){
+Glioblastoma.10x[[i]] = SetAssayData(object = Glioblastoma.10x[[i]], slot = "data", new.data = log2(exp(as.matrix(GetAssayData(object = Glioblastoma.10x[[i]], slot = "data")))))
+}
+
+}
+```
+
+The following normalizes, scales and select 2000 particularly variable genes for the SmartSeq data: 
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+Glioblastoma.SmartSeq = SplitObject(Glioblastoma.list[[1]], split.by = 'Patient')
+rm(Glioblastoma)
+rm(Glioblastoma.list)
+for (i in 1:length(Glioblastoma.SmartSeq)){
+Glioblastoma.SmartSeq[[i]] <- NormalizeData(Glioblastoma.SmartSeq[[i]], normalization.method = "LogNormalize", scale.factor = 100000)
+Glioblastoma.SmartSeq[[i]] <- FindVariableFeatures(Glioblastoma.SmartSeq[[i]], selection.method = "vst", nfeatures = 2000)
+top25 <- head(VariableFeatures(Glioblastoma.SmartSeq[[i]]), 25)
+plot1 <- VariableFeaturePlot(Glioblastoma.SmartSeq[[i]])
+plot2 <- LabelPoints(plot = plot1, points = top25, repel = TRUE)
+CombinePlots(plots = list(plot1, plot2))
+all.genes <- rownames(Glioblastoma.SmartSeq[[i]])
+Glioblastoma.SmartSeq[[i]] <- ScaleData(Glioblastoma.SmartSeq[[i]], features = all.genes)
+
+# To be consistent with the Neftel paper, use log2 normalization:
+
+for (i in 1:length(Glioblastoma.SmartSeq)){
+Glioblastoma.SmartSeq[[i]] = SetAssayData(object = Glioblastoma.SmartSeq[[i]], slot = "data", new.data = log2(exp(as.matrix(GetAssayData(object = Glioblastoma.SmartSeq[[i]], slot = "data")))))
+}
+
+
+
+}
+```
+
+Calculate principal components (10X):
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+for (i in 1:4){
+Glioblastoma.10x[[i]] <- RunPCA(Glioblastoma.10x[[i]], features = VariableFeatures(object = Glioblastoma.10x[[i]]))
+print(Glioblastoma.10x[[i]][["pca"]], dims = 1:5, nfeatures = 5)
+VizDimLoadings(Glioblastoma.10x[[i]], dims = 1:2, reduction = "pca")
+DimPlot(Glioblastoma.10x[[i]], reduction = "pca")
+DimHeatmap(Glioblastoma.10x[[i]], dims = 1, cells = round(dim(Glioblastoma.10x[[i]])[2])/2, balanced = TRUE)
+DimHeatmap(Glioblastoma.10x[[i]], dims = 1:15, cells = round(dim(Glioblastoma.10x[[i]])[2])/2, balanced = TRUE)
+}
+```
+
+Based on the JackStraw procedure I select 15 PCs for further analysis in both cases:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+for (i in 1){
+# Glioblastoma.10x[[i]] <- JackStraw(Glioblastoma.10x[[i]], num.replicate = 100)
+# Glioblastoma.10x[[i]] <- ScoreJackStraw(Glioblastoma.10x[[i]], dims = 1:20)
+# JackStrawPlot(Glioblastoma.10x[[i]], dims = 1:20)
+# ElbowPlot(Glioblastoma.10x[[i]], ndims = 40)
+n_dimensions = 15
+}
+```
+
+This is the clustering step:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+for (i in 1:4){
+Glioblastoma.10x[[i]] <- FindNeighbors(Glioblastoma.10x[[i]], dims = 1:n_dimensions)
+Glioblastoma.10x[[i]] <- FindClusters(Glioblastoma.10x[[i]], resolution = 0.5)
+head(Idents(Glioblastoma.10x[[i]]), 5)
+}
+```
+
+Clusters roughly agree with visual seperation on a UMAP plot:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+for (i in 1:4){
+Glioblastoma.10x[[i]] <- RunUMAP(Glioblastoma.10x[[i]], dims = 1:n_dimensions)
+print(DimPlot(Glioblastoma.10x[[i]], reduction = "umap", label = TRUE))
+}
+```
+
+Find and visualize top cluster markers (we now choose to omit this step):
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+# for (i in 1:3){
+# markers <- FindAllMarkers(Glioblastoma.10x[[i]], only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+# saveRDS(markers, paste('markers_10xClusters_patient', names(Glioblastoma.10x)[i], '.rds', sep = ''))
+# top = markers %>% group_by(cluster) %>% top_n(n = 1, wt = avg_logFC)
+# pdf(paste('figures/FeaturePlotUnbiasedClusterMarkers_10x_Patient', names(Glioblastoma.10x)[i], '.pdf', sep = ''), width = 20, height = 10)
+# print(FeaturePlot(Glioblastoma.10x[[i]], features = top$gene))
+# dev.off()
+# print(FeaturePlot(Glioblastoma.10x[[i]], features = top$gene))
+# top10<- markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logFC)
+# pdf(paste('figures/HeatmapPlotUnbiasedClusterMarkers_10x_Patient', names(Glioblastoma.10x)[i], '.pdf', sep = ''), width = 20, height = 10)
+# print(DoHeatmap(Glioblastoma.10x[[i]], features = top10$gene, cells = 1:dim(Glioblastoma.10x[[i]])[2] + NoLegend()) + 
+#     theme(text = element_text(size = 5)))
+# dev.off()
+# print(DoHeatmap(Glioblastoma.10x[[i]], features = top10$gene, cells = 1:dim(Glioblastoma.10x[[i]])[2] + NoLegend()) + 
+#     theme(text = element_text(size = 5))) 
+# }
+
+```
+
+Calculate a module score for each cell using the method in the Neftel 2019 paper.
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+# Load Neftel modules:
+
+options(stringsAsFactors = FALSE)
+modules = read.delim('/home/jovyan/HB_ZIK/1-s2.0-S0092867419306877-mmc2.csv', skip = 4, sep = ',')
+
+MESlike = c(modules['MES2'][modules['MES2'] != ''], modules['MES1'][modules['MES1'] != ''])
+AClike = modules['AC'][modules['AC'] != '']
+OPClike = modules['OPC'][modules['OPC'] != '']
+NPClike = c(modules['NPC2'][modules['NPC2'] != ''], modules['NPC1'][modules['NPC1'] != ''])
+
+## 10x ##
+
+for (i in 1:length(Glioblastoma.10x)){
+ 
+# Again to be consistent with the Neftel paper note which genes have more than 4 average log2 counts:
+
+normCounts_10X = 2^(as.matrix(GetAssayData(object = Glioblastoma.10x[[i]], slot = "data")))
+             
+average_10X = log2(rowMeans(normCounts_10X))
+keepGenes_10X = average_10X > 4
+rm(average_10X, normCounts_10X)
+
+# Define relative expression:
+
+meanExpression_10x = rowMeans(as.matrix(GetAssayData(object = Glioblastoma.10x[[i]], slot = "data")))[keepGenes_10X]
+
+relativeExpression_10x = as.matrix(GetAssayData(object = Glioblastoma.10x[[i]], slot = "data"))[keepGenes_10X,]-meanExpression_10x 
+
+# Bin genes into 30 groups based on expression:
+
+b = seq(from = min(meanExpression_10x)-0.0001, to = max(meanExpression_10x)+0.0001, length.out = 30)
+bins = .bincode(meanExpression_10x, b, TRUE)
+names(bins) = names(meanExpression_10x)
+
+# Subset signatures to include only available genes:
+
+MESlike_10x = MESlike[MESlike %in% names(meanExpression_10x)]
+AClike_10x = AClike[AClike %in% names(meanExpression_10x)]
+OPClike_10x = OPClike[OPClike %in% names(meanExpression_10x)]
+NPClike_10x = NPClike[NPClike %in% names(meanExpression_10x)]
+
+# Extract control gene set for each signature:
+MESlike_bins = bins[MESlike_10x]
+AClike_bins = bins[AClike_10x]
+OPClike_bins = bins[OPClike_10x]
+NPClike_bins = bins[NPClike_10x]
+
+MESlike_control = unname(unlist(lapply(MESlike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
+AClike_control = unname(unlist(lapply(AClike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
+OPClike_control = unname(unlist(lapply(OPClike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
+NPClike_control = unname(unlist(lapply(NPClike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
+
+# Calculate score:
+
+MESlike_score = colMeans(relativeExpression_10x[MESlike_10x,]) - colMeans(relativeExpression_10x[MESlike_control,]) 
+AClike_score = colMeans(relativeExpression_10x[AClike_10x,]) - colMeans(relativeExpression_10x[AClike_control,]) 
+OPClike_score = colMeans(relativeExpression_10x[OPClike_10x,]) - colMeans(relativeExpression_10x[OPClike_control,]) 
+NPClike_score = colMeans(relativeExpression_10x[NPClike_10x,]) - colMeans(relativeExpression_10x[NPClike_control,]) 
+
+# Add to object:
+
+Glioblastoma.10x[[i]]$MESlike_score = MESlike_score
+Glioblastoma.10x[[i]]$AClike_score = AClike_score
+Glioblastoma.10x[[i]]$OPClike_score = OPClike_score
+Glioblastoma.10x[[i]]$NPClike_score = NPClike_score
+  
+}
+
+## SmartSeq ##
+
+for (i in 1:length(Glioblastoma.SmartSeq)){
+ 
+# Again to be consistent with the Neftel paper note which genes have more than 4 average log2 counts:
+
+normCounts_SmartSeq = 2^(as.matrix(GetAssayData(object = Glioblastoma.SmartSeq[[i]], slot = "data")))
+             
+average_SmartSeq = log2(rowMeans(normCounts_SmartSeq))
+keepGenes_SmartSeq = average_SmartSeq > 4
+rm(average_SmartSeq, normCounts_SmartSeq)
+
+# Define relative expression:
+
+meanExpression_SmartSeq = rowMeans(as.matrix(GetAssayData(object = Glioblastoma.SmartSeq[[i]], slot = "data")))[keepGenes_SmartSeq]
+
+relativeExpression_SmartSeq = as.matrix(GetAssayData(object = Glioblastoma.SmartSeq[[i]], slot = "data"))[keepGenes_SmartSeq,]-meanExpression_SmartSeq 
+
+# Bin genes into 30 groups based on expression:
+
+b = seq(from = min(meanExpression_SmartSeq)-0.0001, to = max(meanExpression_SmartSeq)+0.0001, length.out = 30)
+bins = .bincode(meanExpression_SmartSeq, b, TRUE)
+names(bins) = names(meanExpression_SmartSeq)
+
+# Subset signatures to include only available genes:
+
+MESlike_SmartSeq = MESlike[MESlike %in% names(meanExpression_SmartSeq)]
+AClike_SmartSeq = AClike[AClike %in% names(meanExpression_SmartSeq)]
+OPClike_SmartSeq = OPClike[OPClike %in% names(meanExpression_SmartSeq)]
+NPClike_SmartSeq = NPClike[NPClike %in% names(meanExpression_SmartSeq)]
+
+# Extract control gene set for each signature:
+MESlike_bins = bins[MESlike_SmartSeq]
+AClike_bins = bins[AClike_SmartSeq]
+OPClike_bins = bins[OPClike_SmartSeq]
+NPClike_bins = bins[NPClike_SmartSeq]
+
+MESlike_control = unname(unlist(lapply(MESlike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
+AClike_control = unname(unlist(lapply(AClike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
+OPClike_control = unname(unlist(lapply(OPClike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
+NPClike_control = unname(unlist(lapply(NPClike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
+
+# Calculate score:
+
+MESlike_score = colMeans(relativeExpression_SmartSeq[MESlike_SmartSeq,]) - colMeans(relativeExpression_SmartSeq[MESlike_control,]) 
+AClike_score = colMeans(relativeExpression_SmartSeq[AClike_SmartSeq,]) - colMeans(relativeExpression_SmartSeq[AClike_control,]) 
+OPClike_score = colMeans(relativeExpression_SmartSeq[OPClike_SmartSeq,]) - colMeans(relativeExpression_SmartSeq[OPClike_control,]) 
+NPClike_score = colMeans(relativeExpression_SmartSeq[NPClike_SmartSeq,]) - colMeans(relativeExpression_SmartSeq[NPClike_control,]) 
+
+# Add to object:
+
+Glioblastoma.SmartSeq[[i]]$MESlike_score = MESlike_score
+Glioblastoma.SmartSeq[[i]]$AClike_score = AClike_score
+Glioblastoma.SmartSeq[[i]]$OPClike_score = OPClike_score
+Glioblastoma.SmartSeq[[i]]$NPClike_score = NPClike_score
+  
+}
+
+```
+
+Visualize distribution of scores in 10x and SmartSeq:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+# Make paired plots for donors 45 and 46:
+
+# par(mfrow=c(3,4))
+# Parent <- data.frame(length = Glioblastoma.10x$`45`$MESlike_score)
+# Zika <- data.frame(length = Glioblastoma.SmartSeq$`45`$MESlike_score)
+# Parent$Origin <- 'Parent 10X Whole Tumour'
+# Zika$Origin <- 'Zika mCherry Positives'
+# scores <- rbind(Parent, Zika)
+# 
+# ggplot(scores, aes(length, fill = Origin)) + 
+#    geom_histogram(alpha = 0.5, aes(y = ..density..), position = 'identity')
+
+par(mfrow=c(3,4))
+
+# 45
+
+hist(Glioblastoma.10x$`45`$MESlike_score, col='skyblue',border=F, freq = F, xlab = 'MESlike score', main = 'Patient 45')
+hist(Glioblastoma.SmartSeq$`45`$MESlike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+hist(Glioblastoma.10x$`45`$OPClike_score, col='skyblue',border=F, freq = F, xlab = 'OPClike score', main = 'Patient 45')
+hist(Glioblastoma.SmartSeq$`45`$OPClike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+hist(Glioblastoma.10x$`45`$AClike_score, col='skyblue',border=F, freq = F, xlab = 'AClike score', main = 'Patient 45')
+hist(Glioblastoma.SmartSeq$`45`$AClike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+hist(Glioblastoma.10x$`45`$NPClike_score, col='skyblue',border=F, freq = F, xlab = 'NPClike score', main = 'Patient 45')
+hist(Glioblastoma.SmartSeq$`45`$NPClike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+# 46
+
+hist(Glioblastoma.10x$`46`$MESlike_score, col='skyblue',border=F, freq = F, xlab = 'MESlike score', main = 'Patient 46')
+hist(Glioblastoma.SmartSeq$`45`$MESlike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+hist(Glioblastoma.10x$`46`$OPClike_score, col='skyblue',border=F, freq = F, xlab = 'OPClike score', main = 'Patient 46')
+hist(Glioblastoma.SmartSeq$`45`$OPClike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+hist(Glioblastoma.10x$`46`$AClike_score, col='skyblue',border=F, freq = F, xlab = 'AClike score', main = 'Patient 46')
+hist(Glioblastoma.SmartSeq$`45`$AClike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+hist(Glioblastoma.10x$`46`$NPClike_score, col='skyblue',border=F, freq = F, xlab = 'NPClike score', main = 'Patient 46')
+hist(Glioblastoma.SmartSeq$`45`$NPClike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+# 42,43,45,46 in 10x vs 48,50,51,54 in SmartSeq
+
+hist(c(Glioblastoma.10x$`42`$MESlike_score, Glioblastoma.10x$`43`$MESlike_score,Glioblastoma.10x$`45`$MESlike_score, Glioblastoma.10x$`46`$MESlike_score), col='skyblue',border=F, freq = F, xlab = 'MESlike score', main = 'Patients 42,43,45,46 vs 48,50,51,54')
+hist(c(Glioblastoma.SmartSeq$`48`$MESlike_score, Glioblastoma.SmartSeq$`50`$MESlike_score,
+       Glioblastoma.SmartSeq$`51`$MESlike_score,Glioblastoma.SmartSeq$`54`$MESlike_score), add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+hist(c(Glioblastoma.10x$`42`$OPClike_score, Glioblastoma.10x$`43`$OPClike_score,Glioblastoma.10x$`45`$OPClike_score, Glioblastoma.10x$`46`$OPClike_score), col='skyblue',border=F, freq = F, xlab = 'OPClike score', main = 'Patients 42,43,45,46 vs 48,50,51,54')
+hist(c(Glioblastoma.SmartSeq$`48`$OPClike_score, Glioblastoma.SmartSeq$`50`$OPClike_score,
+       Glioblastoma.SmartSeq$`51`$OPClike_score,Glioblastoma.SmartSeq$`54`$OPClike_score), add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+hist(c(Glioblastoma.10x$`42`$AClike_score, Glioblastoma.10x$`43`$AClike_score,Glioblastoma.10x$`45`$AClike_score, Glioblastoma.10x$`46`$AClike_score), col='skyblue',border=F, freq = F, xlab = 'AClike score', main = 'Patients 42,43,45,46 vs 48,50,51,54')
+hist(c(Glioblastoma.SmartSeq$`48`$AClike_score, Glioblastoma.SmartSeq$`50`$AClike_score,
+       Glioblastoma.SmartSeq$`51`$AClike_score,Glioblastoma.SmartSeq$`54`$AClike_score), add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+hist(c(Glioblastoma.10x$`42`$NPClike_score, Glioblastoma.10x$`43`$NPClike_score,Glioblastoma.10x$`45`$NPClike_score, Glioblastoma.10x$`46`$NPClike_score), col='skyblue',border=F, freq = F, xlab = 'NPClike score', main = 'Patients 42,43,45,46 vs 48,50,51,54')
+hist(c(Glioblastoma.SmartSeq$`48`$NPClike_score, Glioblastoma.SmartSeq$`50`$NPClike_score,
+       Glioblastoma.SmartSeq$`51`$NPClike_score,Glioblastoma.SmartSeq$`54`$NPClike_score), add=T,col=scales::alpha('red',.5),border=F, freq = F)
+
+```
+
+Vizualize a priori chosen markers of tumour subtypes and brain cell types:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+options(stringsAsFactors = FALSE)
+modules = read.delim('/home/jovyan/HB_ZIK/1-s2.0-S0092867419306877-mmc2.csv', skip = 4, sep = ',')
+
+cell.markers = c(
+  'Neurons' =  'RBFOX3', # NeuN
+  'Immature Neurons' = 'DCX',
+  'NSC.1' = 'EMX2', # Apparently also in astrocytes
+  'NSC.2' = 'PAX6',
+  'Activated neurons' = 'FOS', 
+
+  'NSC and Astrocytes' = 'GFAP',
+
+  'VGLUT1 excitatory' = 'SLC17A7',
+  'VGLUT2 excitatory' = 'SLC17A6',
+
+  'Layer I inhibitory' = 'RELN',
+  'Layer II excitatory' = 'LAMP5',
+  'Layer II/III-IV excitatory.1' = 'CUX1',
+  'Layer II/III-IV excitatory.2' = 'CUX2',
+  'Layer IV excitatory' = 'RORB',
+  'Layer Va excitatory' = 'PCP4',
+  'Layer Vb excitatory' = 'HTR2C',
+  'Layer VIa excitatory' = 'OPRK1',
+  'Layer VIb excitatory' = 'NR4A2',
+
+  'HPA Upper layer' = 'TPPP3',
+  'HPA Mid layer' = 'NECAB1',
+  'HPA Lower layer' = 'PCP4',
+
+  'GABAergic' = 'GAD1',
+  'PVALB interneuron' = 'PVALB',
+  'SST interneuron' = 'SST',
+  '5HT3aR interneuron' = 'HTR3A',
+  'VIP interneuron' = 'VIP', #Subset of 5HTraR
+
+  'Cholinergic' = 'ACHE',
+  'Dopaminergic' = 'TH',
+  'Serotinergic' = 'TPH1',
+
+  'Astrocytes' = 'AQP4',
+
+  'Oligodendrocytes.1' = 'PLP1',
+  'Oligodendrocytes.1' = 'MOG',
+
+  'OPC' = 'PDGFRA',
+
+  'Endothelial cells' = 'APOLD1',
+
+  'Microglia.1' = 'CCL4',
+  'Microglia.2' = 'CCL3',
+  'Microglia.3' = 'TMEM119',
+
+  'Microglia and astrocytes' = 'CX3CR1',
+
+  'pre-Bötzinger interneurons' = 'TACR1',
+  'T cells' = 'CD3G'
+  )
+
+kriegstein.markers = c(
+'Mature IPC/Newborn Neuron'		=	'ADCYAP1',
+'Glycolytic Progenitor'		=	'BHLHE22',
+'OPC'		=	'CHRNA3',
+'Oligodendrocyte'		=	'SCRT1',
+'Microglia'		=	'CALB2',
+'Mixed Progenitor/Neuron'		=	'TAC3',
+'Endothelial'		=	'SCRT2',
+'Tumor Associated Macrophage'		=	'CRABP1',
+'Oligodendrocyte'		=	'PPP1R17',
+'Pericyte'		= 'DOC2B',
+'OPC'		=	'CABP7',
+'Oligodendrocyte'		=	'NHLH2',
+'Endothelial'		=	'CDH7',
+'Dividing Neuron'		=	'DLX6',
+'Protoplasmic Astrocyte'		=	'MYT1L',
+'B Cells'		=	'NHLH1',
+'Microglia'		=	'TP73',
+'Dividing Neuron'		=	'NEUROD4',
+'Radial Glia'		=	'OPRD1',
+'Endothelial'		=	'VIPR2',
+'Pericyte'		=	'PTPN5',
+'Endothelial'		=	'PCSK2',
+'Radial Glia'		=	'CAMKV',
+'Oligodendrocyte'		=	'ACTL6B',
+'Dividing OPC'		=	'DACH1',
+'Radial Glia'		=	'FNDC5',
+'Radial Glia'		=	'KLHL35',
+'Radial Glia'		=	'ELAVL2',
+'Microglia'		=	'ONECUT2',
+'Dividing Neuron'		=	'SYT4',
+'OPC'		=	'SRRM4',
+'Microglia'		=	'SH3GL2',
+'Microglia'		=	'SVEP1',
+'Glycolytic Progenitor'		=	'CPLX1',
+'Unknown'		=	'RBFOX1',
+'Microglia'		=	'L1CAM',
+'Microglia'		=	'CELF3',
+'Radial Glia'		=	'DLX5',
+'OPC'		=	'ST8SIA2',
+'Dividing Neuron'		=	'TSPAN18',
+'Immature Astrocyte'		=	'LHX1',
+'Mixed Progenitor/Neuron'		=	'BRSK2',
+'Immature Astrocyte'		=	'DUSP26',
+'Microglia'		=	'SRRM3',
+'Neuron'		=	'NKAIN1',
+'Red blood cells'		=	'GAL',
+'CGE iN'		=	'GRIN2B',
+'Microglia'		=	'RIMS3',
+'Dividing B Cells'		=	'CELSR3',
+'Oligodendrocyte'		=	'SYT7',
+'Dividing Progenitor'		=	'HUNK',
+'Dividing Progenitor'		=	'ST8SIA3'
+)
+
+for (i in 1:4){
+
+print(i)
+  
+Glioblastoma.10x[[i]]@assays$RNA@scale.data = rbind(colSums(Glioblastoma.10x[[i]]@assays$RNA@scale.data[rownames(Glioblastoma.10x[[i]]@assays$RNA@scale.data) %in% c(modules['MES2'][modules['MES2'] != ''], modules['MES1'][modules['MES1'] != '']),]), Glioblastoma.10x[[i]]@assays$RNA@scale.data)
+rownames(Glioblastoma.10x[[i]]@assays$RNA@scale.data)[1] = 'MESlike'
+
+Glioblastoma.10x[[i]]@assays$RNA@scale.data = rbind(colSums(Glioblastoma.10x[[i]]@assays$RNA@scale.data[rownames(Glioblastoma.10x[[i]]@assays$RNA@scale.data) %in% modules['AC'][modules['AC'] != ''],]), Glioblastoma.10x[[i]]@assays$RNA@scale.data)
+rownames(Glioblastoma.10x[[i]]@assays$RNA@scale.data)[1] = 'AClike'
+
+Glioblastoma.10x[[i]]@assays$RNA@scale.data = rbind(colSums(Glioblastoma.10x[[i]]@assays$RNA@scale.data[rownames(Glioblastoma.10x[[i]]@assays$RNA@scale.data) %in% modules['OPC'][modules['OPC'] != ''],]), Glioblastoma.10x[[i]]@assays$RNA@scale.data)
+rownames(Glioblastoma.10x[[i]]@assays$RNA@scale.data)[1] = 'OPClike'
+
+Glioblastoma.10x[[i]]@assays$RNA@scale.data = rbind(colSums(Glioblastoma.10x[[i]]@assays$RNA@scale.data[rownames(Glioblastoma.10x[[i]]@assays$RNA@scale.data) %in% c(modules['NPC2'][modules['NPC2'] != ''], modules['NPC1'][modules['NPC1'] != '']),]), Glioblastoma.10x[[i]]@assays$RNA@scale.data)
+rownames(Glioblastoma.10x[[i]]@assays$RNA@scale.data)[1] = 'NPClike'
+
+features = c('MESlike', 'AClike', 'OPClike', 'NPClike', unlist(cell.markers)) 
+count = 0
+for (f in list(1:10, 11:20,21:30,31:43)){
+  count = count + 1
+  pdf(paste('figures/KnownMarkersFeaturePlot', as.character(count), '10x_Patient', names(Glioblastoma.10x)[i],'.pdf', sep = ''), width = 20, height = 10)
+  print(FeaturePlot(Glioblastoma.10x[[i]], features = features[f], slot = 'scale.data'))
+  dev.off()
+  print(FeaturePlot(Glioblastoma.10x[[i]], features = features[f], slot = 'scale.data'))
+}
+
+pdf(paste('figures/KriegsteinMarkersFeaturePlot', '_10x_Patient', names(Glioblastoma.10x)[i],'.pdf', sep = ''), width = 20, height = 10)
+print(FeaturePlot(Glioblastoma.10x[[i]], features = unlist(kriegstein.markers), slot = 'scale.data'))
+dev.off()
+print(FeaturePlot(Glioblastoma.10x[[i]], features = unlist(kriegstein.markers), slot = 'scale.data'))
+}
+
+```
+
+Visualize a priori chosen markers in a heatmap:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+for (i in 1:4){
+pdf(paste('figures/KnownMarkersHeatmap', as.character(count), '10x_Patient', names(Glioblastoma.10x)[i],'.pdf', sep = ''), width = 20, height = 10)
+print(DoHeatmap(Glioblastoma.10x[[i]], features = c('MESlike', 'AClike', 'OPClike', 'NPClike', unlist(cell.markers)), slot = 'scale.data') + NoLegend())
+dev.off()
+print(DoHeatmap(Glioblastoma.10x[[i]], features = unlist(cell.markers), slot = 'scale.data') + NoLegend()) 
+print(DoHeatmap(Glioblastoma.10x[[i]], features = c('MESlike', 'AClike', 'OPClike', 'NPClike'), slot = 'scale.data') + NoLegend()) 
+print(DoHeatmap(Glioblastoma.10x[[i]], features = unlist(kriegstein.markers), slot = 'scale.data') + NoLegend())
+}
+```
+
+Assign identity to cluster based on marker expression:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+new.cluster.ids <- list(
+  
+                    c("OPClike",
+                     "NPClike",
+                     "NPClike",
+                     "MES/AClike",
+                     "NPClike",
+                     "NPClike",
+                     "MESlike",
+                     "Alllike",
+                     "NPClike", 
+                     "AC/OPC/NPClike",
+                     "GlutamatergicNeuron(L4)",
+                     "NPClike",
+                     "NPClike",
+                     "NPClike",
+                     "MES/OPClike",
+                     "MES/AClike"),
+                    
+                    c("Alllike",
+                      "Unclassified",
+                      "Unclassified",
+                      "MESlike",
+                      "Unclassified",
+                      "AC/OPC/NPClike",
+                      "OPClike",
+                      "MESlike",
+                      "NPClike",
+                      "Microglia"),
+                    
+                    c("Oligodendrocytes",
+                     "OPC/NPClike",
+                     "Alllike",
+                     "Alllike",
+                     "MESlike",
+                     "OPC/NPClike",
+                     "Microglia",
+                     "NPClike",
+                     "AClike", 
+                     "OPC/NPClike",
+                     "NPClike",
+                     "MESlike",
+                     "MESlike",
+                     "MESlike"),
+  
+                    c("Oligodendrocytes",
+                     "Microglia",
+                     "Oligodendrocytes",
+                     "Alllike",
+                     "OPC/NPClike",
+                     "AC/OPC/NPClike",
+                     "MESlike",
+                     "MESlike",
+                     "MESlike", 
+                     "OPC/NPClike",
+                     "MES/AClike",
+                     "MES/AClike",
+                     "NPClike"))
+
+for (i in c(1,2,3,4)){
+  print(i)
+  names(new.cluster.ids[[i]]) <- levels(Glioblastoma.10x[[i]])
+  Glioblastoma.10x[[i]] <- RenameIdents(Glioblastoma.10x[[i]], new.cluster.ids[[i]])
+  pdf(paste('figures/UMAPwithClusterLabel_10x_Patient', names(Glioblastoma.10x)[i],'.pdf', sep = ''), width = 20, height = 10)
+  print(DimPlot(Glioblastoma.10x[[i]], reduction = "umap", label = TRUE, pt.size = 0.5, label.size = 8) + NoLegend())
+  dev.off()
+  print(DimPlot(Glioblastoma.10x[[i]], reduction = "umap", label = TRUE, pt.size = 0.5, label.size = 8) + NoLegend())
+}
+
+```
+
+Redo Heatmap with new cluster names:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+for (i in 1:4){
+pdf(paste('figures/KnownMarkersHeatmapClusterNames', as.character(count), '10x_Patient', names(Glioblastoma.10x)[i],'.pdf', sep = ''), width = 20, height = 10)
+print(DoHeatmap(Glioblastoma.10x[[i]], features = c('MESlike', 'AClike', 'OPClike', 'NPClike', unlist(cell.markers)), slot = 'scale.data') + NoLegend())
+dev.off()
+print(DoHeatmap(Glioblastoma.10x[[i]], features = unlist(cell.markers), slot = 'scale.data') + NoLegend()) 
+print(DoHeatmap(Glioblastoma.10x[[i]], features = c('MESlike', 'AClike', 'OPClike', 'NPClike'), slot = 'scale.data') + NoLegend()) 
+print(DoHeatmap(Glioblastoma.10x[[i]], features = unlist(kriegstein.markers), slot = 'scale.data') + NoLegend())
+}
+```
+
+Make a bar plot of cell proportions:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+tab = list()
+for (i in 1:4){
+  tab[[i]] = table(Idents(Glioblastoma.10x[[i]]))/sum(table(Idents(Glioblastoma.10x[[i]])))
+}
+
+# create a dataset
+patient <- c(rep(names(Glioblastoma.10x)[[1]] , length(tab[[1]])), rep(names(Glioblastoma.10x)[[2]] , length(tab[[2]])),
+             rep(names(Glioblastoma.10x)[[3]] , length(tab[[3]])), rep(names(Glioblastoma.10x)[[4]] , length(tab[[4]])))
+celltype <- names(unlist(tab))
+value <- unname(unlist(tab))
+data <- data.frame(patient,celltype,value)
+ 
+# Stacked + percent
+pdf('figures/CellProportions_All_10X.pdf', width = 20, height = 10)
+ggplot(data, aes(fill=patient, y=value, x=celltype)) + geom_bar(position=position_dodge(), stat="identity")
+dev.off()
+ggplot(data, aes(fill=patient, y=value, x=celltype)) + geom_bar(position=position_dodge(), stat="identity")
+
+
+
+```
+
+
+Integrate with smartSeq data (only for patient 46, because there is no matching data for other patients):
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+reference.list <- list(Glioblastoma.10x[[4]], Glioblastoma.SmartSeq[[1]])
+features = SelectIntegrationFeatures(reference.list)
+features = c(features, 'HOXB9')
+glioblastoma.anchors <- FindIntegrationAnchors(object.list = reference.list, dims = 1:n_dimensions, anchor.features = features)
+glioblastoma.integrated <- IntegrateData(anchorset = glioblastoma.anchors, dims = 1:n_dimensions, normalization.method = "LogNormalize")
+
+```
+
+Visualize integrated data:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+library(cowplot)
+library(patchwork)
+# switch to integrated assay. The variable features of this assay are automatically
+# set during IntegrateData
+DefaultAssay(glioblastoma.integrated) <- "integrated"
+
+# Run the standard workflow for visualization and clustering
+glioblastoma.integrated <- ScaleData(glioblastoma.integrated, verbose = FALSE)
+glioblastoma.integrated <- RunPCA(glioblastoma.integrated, npcs = n_dimensions, verbose = FALSE)
+glioblastoma.integrated <- RunUMAP(glioblastoma.integrated, reduction = "pca", dims = 1:n_dimensions)
+p1 <- DimPlot(glioblastoma.integrated, reduction = "umap", group.by = "Technology")
+p2 <- DimPlot(glioblastoma.integrated, reduction = "umap", label = TRUE, 
+    repel = TRUE) + NoLegend()
+pdf('figures/UMAPintegrated_Patient46.pdf', width = 20, height = 10)
+print(p1 + p2)
+dev.off()
+p1+p2
+```
+
+Plot Hobxb9 expression:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+# Do not include unclassified cells in reference:
+
+value = glioblastoma.integrated@assays$integrated@data['HOXB9',]
+tech = glioblastoma.integrated$Technology
+
+value_raw = c(reference.list[[1]]@assays$RNA@data['HOXB9',], reference.list[[2]]@assays$RNA@data['HOXB9',])
+
+data_integrated <- data.frame(tech,value)
+
+p = ggplot(data_integrated, aes(x=tech, y=value)) + geom_violin(trim=FALSE)
+p + stat_summary(fun.data="mean_sdl", mult=1, geom="crossbar", width=0.2 ) + 
+  geom_jitter(shape=16, position=position_jitter(0.3))
+
+```
+
+
+Now classify cells and make plot of cell proportions:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+# Do not include unclassified cells in reference:
+
+
+modules = read.delim('/home/jovyan/HB_ZIK/1-s2.0-S0092867419306877-mmc2 (1)_SUBSET.csv', sep = ',')
+features = unname(unlist(modules)[unlist(modules) != ''])
+
+Reference = Glioblastoma.10x[[4]]
+
+glioblastoma.anchors <- FindTransferAnchors(reference = Reference, query = Glioblastoma.SmartSeq[[1]], dims = 1:n_dimensions,
+                                            features = features)
+predictions <- TransferData(anchorset = glioblastoma.anchors, refdata = Idents(Reference), dims = 1:n_dimensions)
+Glioblastoma.SmartSeq[[1]] <- AddMetaData(Glioblastoma.SmartSeq[[1]], metadata = predictions)
+
+```
+
+Also make plots of integrations scores:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+# Do not include unclassified cells in reference:
+
+# hist(unname(Glioblastoma.SmartSeq[[1]]$prediction.score.max[Glioblastoma.SmartSeq[[1]]$predicted.id == '3: OPClike']),xlim = c(0,1), xlab = 'Classification Score', main = 'Histogram of OPClike Classification Scores')
+# hist(unname(Glioblastoma.SmartSeq[[1]]$prediction.score.max[Glioblastoma.SmartSeq[[1]]$predicted.id == '4: OPClike']),xlim = c(0,1), xlab = 'Classification Score', main = 'Histogram of OPClike Classification Scores')
+# hist(unname(Glioblastoma.SmartSeq[[1]]$prediction.score.max[Glioblastoma.SmartSeq[[1]]$predicted.id == '5: Microglia']),xlim = c(0,1), xlab = 'Classification Score', main = 'Histogram of Microglia Classification Scores')
+
+```
+
+
+Finally visualize cell proportions in 10x and SmartSeq data:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+# Do not include unclassified cells in reference:
+tab = c(table(Idents(Reference))/sum(table(Idents(Reference))), table(Glioblastoma.SmartSeq[[1]]$predicted.id)/sum(table(Glioblastoma.SmartSeq[[1]]$predicted.id)))
+
+# create a dataset:
+tech <- c(rep("10X" , length(table(Idents(Reference)))) , rep("SmartSeq" , length(table(Glioblastoma.SmartSeq[[1]]$predicted.id))))
+celltype <- names(tab)
+value <- unname(tab)
+data <- data.frame(tech,celltype,value)
+ 
+# Stacked + percent:
+pdf('figures/CellProportions_Patient46.pdf', width = 20, height = 10)
+ggplot(data, aes(fill=tech, y=value, x=celltype)) + geom_bar(position=position_dodge(), stat="identity")
+dev.off()
+ggplot(data, aes(fill=tech, y=value, x=celltype)) + geom_bar(position=position_dodge(), stat="identity")
+```
+
+Now integrate all SmartSeq data with all 10x data
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+for (i in 1:4){
+  Glioblastoma.10x[[i]]@assays$RNA@scale.data = Glioblastoma.10x[[i]]@assays$RNA@scale.data[5:dim(Glioblastoma.10x[[i]]@assays$RNA@scale.data)[1], ]
+}
+
+```
+
+First integrate all 10x data:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+glioblastoma.anchors <- FindIntegrationAnchors(object.list = Glioblastoma.10x, dims = 1:n_dimensions)
+glioblastoma.10x.integrated <- IntegrateData(anchorset = glioblastoma.anchors, dims = 1:n_dimensions)
+
+```
+
+Then use the integrated data as a reference to classicy cell types:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+library(cowplot)
+library(patchwork)
+# switch to integrated assay. The variable features of this assay are automatically
+# set during IntegrateData
+DefaultAssay(glioblastoma.10x.integrated) <- "integrated"
+
+# Run the standard workflow for visualization and clustering
+glioblastoma.10x.integrated <- ScaleData(glioblastoma.10x.integrated, verbose = FALSE)
+glioblastoma.10x.integrated <- RunPCA(glioblastoma.10x.integrated, npcs = n_dimensions, verbose = FALSE)
+glioblastoma.10x.integrated <- RunUMAP(glioblastoma.10x.integrated, reduction = "pca", dims = 1:n_dimensions)
+p1 <- DimPlot(glioblastoma.10x.integrated, reduction = "umap", group.by = "Technology")
+p2 <- DimPlot(glioblastoma.10x.integrated, reduction = "umap", label = TRUE, 
+    repel = TRUE) + NoLegend()
+# pdf('figures/UMAPintegrated_Patient46.pdf', width = 20, height = 10)
+# print(p1 + p2)
+# dev.off()
+p1+p2
+```
+
+
+Now use the integrated reference to classify cells:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+glioblastoma.anchors <- FindTransferAnchors(reference = glioblastoma.10x.integrated, query = Glioblastoma.SmartSeq[[2]], dims = 1:n_dimensions, features = features)
+predictions <- TransferData(anchorset = glioblastoma.anchors, refdata = Idents(glioblastoma.10x.integrated), dims = 1:n_dimensions)
+Glioblastoma.SmartSeq[[2]] <- AddMetaData(Glioblastoma.SmartSeq[[2]], metadata = predictions)
+
+glioblastoma.anchors <- FindTransferAnchors(reference = glioblastoma.10x.integrated, query = Glioblastoma.SmartSeq[[3]], dims = 1:n_dimensions, features = features)
+predictions <- TransferData(anchorset = glioblastoma.anchors, refdata = Idents(glioblastoma.10x.integrated), dims = 1:n_dimensions)
+Glioblastoma.SmartSeq[[3]] <- AddMetaData(Glioblastoma.SmartSeq[[3]], metadata = predictions)
+
+glioblastoma.anchors <- FindTransferAnchors(reference = glioblastoma.10x.integrated, query = Glioblastoma.SmartSeq[[4]], dims = 1:n_dimensions, features = features)
+predictions <- TransferData(anchorset = glioblastoma.anchors, refdata = Idents(glioblastoma.10x.integrated), dims = 1:n_dimensions)
+Glioblastoma.SmartSeq[[4]] <- AddMetaData(Glioblastoma.SmartSeq[[4]], metadata = predictions)
+
+```
+
+And again we make an overview of the classifications for each donor:
+
+Finally visualize cell proportions in 10x and SmartSeq data:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+for (i in c(2,3,4)){
+# Do not include unclassified cells in reference:
+tab = c(table(Idents(glioblastoma.10x.integrated))/sum(table(Idents(glioblastoma.10x.integrated))), table(Glioblastoma.SmartSeq[[i]]$predicted.id)/sum(table(Glioblastoma.SmartSeq[[i]]$predicted.id)))
+
+# Create a dataset
+tech <- c(rep("10X" , length(table(Idents(glioblastoma.10x.integrated)))) , rep("SmartSeq" , length(table(Glioblastoma.SmartSeq[[i]]$predicted.id))))
+celltype <- names(tab)
+value <- unname(tab)
+data <- data.frame(tech,celltype,value)
+ 
+# Stacked + percent
+pdf(paste('figures/CellProportions_Patient', names(Glioblastoma.SmartSeq)[i],'.pdf', sep = ''), width = 20, height = 10)
+print(ggplot(data, aes(fill=tech, y=value, x=celltype)) + geom_bar(position=position_dodge(), stat="identity"))
+dev.off()
+print(ggplot(data, aes(fill=tech, y=value, x=celltype)) + geom_bar(position=position_dodge(), stat="identity"))
+
+print(i)
+print(table(Glioblastoma.SmartSeq[[i]]$predicted.id))
+
+}
+
+```
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+# Do not include unclassified cells in reference:
+# hist(unname(Glioblastoma.SmartSeq[[2]]$prediction.score.max[Glioblastoma.SmartSeq[[2]]$predicted.id == '3: OPClike']),xlim = c(0,1), xlab = 'Classification Score', main = 'Histogram of OPClike Classification Scores')
+# hist(unname(Glioblastoma.SmartSeq[[2]]$prediction.score.max[Glioblastoma.SmartSeq[[2]]$predicted.id == '4: OPClike']),xlim = c(0,1), xlab = 'Classification Score', main = 'Histogram of OPClike Classification Scores')
+# hist(unname(Glioblastoma.SmartSeq[[1]]$prediction.score.max[Glioblastoma.SmartSeq[[1]]$predicted.id == '5: Microglia']),xlim = c(0,1), xlab = 'Classification Score', main = 'Histogram of Microglia Classification Scores')
+
+```
+
+To be sure we also cluster the SmartSeq data on its own:
+
+Calculate principal components:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+for (i in 1:4){
+Glioblastoma.SmartSeq[[i]] <- RunPCA(Glioblastoma.SmartSeq[[i]], features = VariableFeatures(object = Glioblastoma.SmartSeq[[i]]))
+print(Glioblastoma.SmartSeq[[i]][["pca"]], dims = 1:5, nfeatures = 5)
+VizDimLoadings(Glioblastoma.SmartSeq[[i]], dims = 1:2, reduction = "pca")
+DimPlot(Glioblastoma.SmartSeq[[i]], reduction = "pca")
+DimHeatmap(Glioblastoma.SmartSeq[[i]], dims = 1, cells = round(dim(Glioblastoma.SmartSeq[[i]])[2])/2, balanced = TRUE)
+DimHeatmap(Glioblastoma.SmartSeq[[i]], dims = 1:15, cells = round(dim(Glioblastoma.SmartSeq[[i]])[2])/2, balanced = TRUE)
+}
+```
+
+This is the clustering step:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+n_dimensions = 15
+for (i in 1:4){
+Glioblastoma.SmartSeq[[i]] <- FindNeighbors(Glioblastoma.SmartSeq[[i]], dims = 1:n_dimensions)
+Glioblastoma.SmartSeq[[i]] <- FindClusters(Glioblastoma.SmartSeq[[i]], resolution = 0.5)
+head(Idents(Glioblastoma.SmartSeq[[i]]), 5)
+}
+```
+
+Clusters roughly agree with visual seperation on a UMAP plot:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+for (i in 1:4){
+Idents(Glioblastoma.SmartSeq[[i]]) = Glioblastoma.SmartSeq[[i]]$predicted.id
+Glioblastoma.SmartSeq[[i]] <- RunUMAP(Glioblastoma.SmartSeq[[i]], dims = 1:n_dimensions)
+
+pdf(paste('figures/UMAPwithClusterLabel_SmartSeq_Patient', names(Glioblastoma.SmartSeq)[i],'.pdf', sep = ''), width = 20, height = 10)
+print(DimPlot(Glioblastoma.SmartSeq[[i]], reduction = "umap", label = TRUE))
+dev.off()
+print(DimPlot(Glioblastoma.SmartSeq[[i]], reduction = "umap", label = TRUE))
+}
+```
+
+Find and visualize top cluster markers:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+i = 1
+markers_S <- FindAllMarkers(Glioblastoma.SmartSeq[[i]], only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+top = markers_S %>% group_by(cluster) %>% top_n(n = 1, wt = avg_logFC)
+pdf('figures/FeaturePlotUnbiasedClusterMarkers_SmartSeq_Patient46.pdf', width = 20, height = 10)
+print(FeaturePlot(Glioblastoma.SmartSeq[[i]], features = top$gene))
+dev.off()
+print(FeaturePlot(Glioblastoma.SmartSeq[[i]], features = top$gene))
+top10<- markers_S %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logFC)
+pdf('figures/HeatmapUnbiasedClusterMarkers__SmartSeq_Patient46.pdf', width = 20, height = 10)
+print(DoHeatmap(Glioblastoma.SmartSeq[[i]], features = top10$gene, cells = 1:dim(Glioblastoma.SmartSeq[[i]])[2] + NoLegend()) + 
+    theme(text = element_text(size = 5)))
+dev.off()
+print(DoHeatmap(Glioblastoma.SmartSeq[[i]], features = top10$gene, cells = 1:dim(Glioblastoma.SmartSeq[[i]])[2] + NoLegend()) + 
+    theme(text = element_text(size = 5)))
+```
+
+Vizualize a priori chosen markers of tumour subtypes:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+for (i in 1:4){
+
+print(i)
+  
+Glioblastoma.SmartSeq[[i]]@assays$RNA@scale.data = rbind(colSums(Glioblastoma.SmartSeq[[i]]@assays$RNA@scale.data[rownames(Glioblastoma.SmartSeq[[i]]@assays$RNA@scale.data) %in% c(modules['MES2'][modules['MES2'] != ''], modules['MES1'][modules['MES1'] != '']),]), Glioblastoma.SmartSeq[[i]]@assays$RNA@scale.data)
+rownames(Glioblastoma.SmartSeq[[i]]@assays$RNA@scale.data)[1] = 'MESlike'
+
+Glioblastoma.SmartSeq[[i]]@assays$RNA@scale.data = rbind(colSums(Glioblastoma.SmartSeq[[i]]@assays$RNA@scale.data[rownames(Glioblastoma.SmartSeq[[i]]@assays$RNA@scale.data) %in% modules['AC'][modules['AC'] != ''],]), Glioblastoma.SmartSeq[[i]]@assays$RNA@scale.data)
+rownames(Glioblastoma.SmartSeq[[i]]@assays$RNA@scale.data)[1] = 'AClike'
+
+Glioblastoma.SmartSeq[[i]]@assays$RNA@scale.data = rbind(colSums(Glioblastoma.SmartSeq[[i]]@assays$RNA@scale.data[rownames(Glioblastoma.SmartSeq[[i]]@assays$RNA@scale.data) %in% modules['OPC'][modules['OPC'] != ''],]), Glioblastoma.SmartSeq[[i]]@assays$RNA@scale.data)
+rownames(Glioblastoma.SmartSeq[[i]]@assays$RNA@scale.data)[1] = 'OPClike'
+
+Glioblastoma.SmartSeq[[i]]@assays$RNA@scale.data = rbind(colSums(Glioblastoma.SmartSeq[[i]]@assays$RNA@scale.data[rownames(Glioblastoma.SmartSeq[[i]]@assays$RNA@scale.data) %in% c(modules['NPC2'][modules['NPC2'] != ''], modules['NPC1'][modules['NPC1'] != '']),]), Glioblastoma.SmartSeq[[i]]@assays$RNA@scale.data)
+rownames(Glioblastoma.SmartSeq[[i]]@assays$RNA@scale.data)[1] = 'NPClike'
+
+features = c('MESlike', 'AClike', 'OPClike', 'NPClike', unlist(cell.markers)) 
+count = 0
+for (f in list(1:10, 11:20,21:30,31:43)){
+  count = count + 1
+  pdf(paste('figures/KnownMarkersFeaturePlot', as.character(count), 'SmartSeq_Patient', names(Glioblastoma.SmartSeq)[i],'.pdf', sep = ''), width = 20, height = 10)
+  print(FeaturePlot(Glioblastoma.SmartSeq[[i]], features = features[f], slot = 'scale.data'))
+  dev.off()
+  print(FeaturePlot(Glioblastoma.SmartSeq[[i]], features = features[f], slot = 'scale.data'))
+}
+
+pdf(paste('figures/KriegsteinMarkersFeaturePlot', '_SmartSeq_Patient', names(Glioblastoma.SmartSeq)[i],'.pdf', sep = ''), width = 20, height = 10)
+print(FeaturePlot(Glioblastoma.SmartSeq[[i]], features = unlist(kriegstein.markers), slot = 'scale.data'))
+dev.off()
+print(FeaturePlot(Glioblastoma.SmartSeq[[i]], features = unlist(kriegstein.markers), slot = 'scale.data'))
+}
+
+```
+
+Visualize a priori chosen markers in a heatmap:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+for (i in 1:4){
+pdf(paste('figures/KnownMarkersHeatmap', 'SmartSeq_Patient', names(Glioblastoma.SmartSeq)[i],'.pdf', sep = ''), width = 20, height = 10)
+print(DoHeatmap(Glioblastoma.SmartSeq[[i]], features = c('MESlike', 'AClike', 'OPClike', 'NPClike', unlist(cell.markers)), slot = 'scale.data') + NoLegend())
+dev.off()
+print(DoHeatmap(Glioblastoma.SmartSeq[[i]], features = unlist(cell.markers), slot = 'scale.data') + NoLegend()) 
+print(DoHeatmap(Glioblastoma.SmartSeq[[i]], features = c('MESlike', 'AClike', 'OPClike', 'NPClike'), slot = 'scale.data') + NoLegend()) 
+print(DoHeatmap(Glioblastoma.SmartSeq[[i]], features = unlist(kriegstein.markers), slot = 'scale.data') + NoLegend())
+}
+```
+
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+for (i in 1:length(Glioblastoma.SmartSeq)){
+  Idents(Glioblastoma.SmartSeq[[i]]) = Glioblastoma.SmartSeq[[i]]$predicted.id
+}
+
+integration.list = unlist(list(glioblastoma.10x.integrated, Glioblastoma.SmartSeq))
+glioblastomaAll.anchors <- FindIntegrationAnchors(object.list = integration.list, dims = 1:n_dimensions)
+glioblastoma.All.integrated <- IntegrateData(anchorset = glioblastomaAll.anchors, dims = 1:n_dimensions)
+
+```
+
+Now also integrate SmartSeq data and 10X:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+library(cowplot)
+library(patchwork)
+# switch to integrated assay. The variable features of this assay are automatically
+# set during IntegrateData
+DefaultAssay(glioblastoma.10x.integrated) <- "integrated"
+
+# Run the standard workflow for visualization and clustering
+glioblastoma.All.integrated <- ScaleData(glioblastoma.All.integrated, verbose = FALSE)
+glioblastoma.All.integrated <- RunPCA(glioblastoma.All.integrated, npcs = n_dimensions, verbose = FALSE)
+glioblastoma.All.integrated <- RunUMAP(glioblastoma.All.integrated, reduction = "pca", dims = 1:n_dimensions)
+p1 <- DimPlot(glioblastoma.All.integrated, reduction = "umap", group.by = "Technology")
+p2 <- DimPlot(glioblastoma.All.integrated, reduction = "umap", label = TRUE, 
+    repel = TRUE) + NoLegend()
+# pdf('figures/UMAPintegrated_Patient46.pdf', width = 20, height = 10)
+# print(p1 + p2)
+# dev.off()
+p1+p2
+```
+
+And make a UMAP plot of 10X and SmartSeq data side by side with the same axis and including cell type classifications:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+idents = Idents(glioblastoma.All.integrated)
+
+idents[!idents %in% c('GlutamatergicNeuron(L4)', 'Unclassified', 'Microglia', 'Oligodendrocytes')] = 'Malignant'
+
+Idents(glioblastoma.All.integrated) = idents
+
+p1 <- DimPlot(glioblastoma.All.integrated[,glioblastoma.All.integrated$Technology == '10X' & glioblastoma.All.integrated$Patient != '46'], reduction = "umap", label = TRUE) + NoLegend()
+p2 <- DimPlot(glioblastoma.All.integrated[,glioblastoma.All.integrated$Technology == 'SmartSeq' & glioblastoma.All.integrated$Patient != '46'], reduction = "umap", 
+    repel = TRUE)
+pdf('figures/UMAPintegratedAll_donorRest.pdf', width = 20, height = 10)
+print(p1 + p2)
+dev.off()
+p1+p2
+
+p1 <- DimPlot(glioblastoma.All.integrated[,glioblastoma.All.integrated$Technology == '10X' & glioblastoma.All.integrated$Patient == '46'], reduction = "umap", label = TRUE) + NoLegend()
+p2 <- DimPlot(glioblastoma.All.integrated[,glioblastoma.All.integrated$Technology == 'SmartSeq' & glioblastoma.All.integrated$Patient == '46'], reduction = "umap", 
+    repel = TRUE)
+pdf('figures/UMAPintegratedAll_donor46.pdf', width = 20, height = 10)
+print(p1 + p2)
+dev.off()
+p1+p2
+
+```
+
+Now make a heatmap showing expression of the main markers in 10x and SmartSeq data:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+
+for (i in 1:2){
+  Glioblastoma.list[[i]] = NormalizeData(Glioblastoma.list[[i]], normalization.method = "LogNormalize", scale.factor = 10000)
+  Glioblastoma.list[[i]] <- FindVariableFeatures(Glioblastoma.list[[i]], selection.method = "vst", nfeatures = 2000)
+  Glioblastoma.list[[i]] = RunPCA(Glioblastoma.list[[i]], features = VariableFeatures(object = Glioblastoma.list[[i]]))
+  Glioblastoma.list[[i]] <- ScaleData(Glioblastoma.list[[i]], features = all.genes)
+  Glioblastoma.list[[i]] <- FindNeighbors(Glioblastoma.list[[i]], dims = 1:n_dimensions)
+  Glioblastoma.list[[i]] <- FindClusters(Glioblastoma.list[[i]], resolution = 0.5)
+}
+
+plot_genes = modules[1:18,1:6]
+labels = rep(c('transparent', 'black'), 54)
+p1 = DoHeatmap(Glioblastoma.list[[1]][,Glioblastoma.list[[1]]$Patient != '46'], features = unlist(plot_genes), slot = 'scale.data', group.bar = FALSE, label = FALSE) + theme(axis.text.y = element_text(color = rev(x = labels))) + NoLegend()
+
+p2 = DoHeatmap(Glioblastoma.list[[1]][,Glioblastoma.list[[1]]$Patient == '46'], features = unlist(plot_genes), slot = 'scale.data', group.bar = FALSE, label = FALSE) + theme(axis.text.y = element_text(color = rev(x = labels))) + NoLegend()
+
+p3 = DoHeatmap(Glioblastoma.list[[2]][,sample(which(Glioblastoma.list[[2]]$Patient == '46'), 10000)], features = unlist(plot_genes), slot = 'scale.data', group.bar = FALSE, label = FALSE) + theme(axis.text.y = element_text(color = rev(x = labels))) + NoLegend()
+
+p4 = DoHeatmap(Glioblastoma.list[[2]][,sample(which(Glioblastoma.list[[2]]$Patient != '46'), 10000)], features = unlist(plot_genes), slot = 'scale.data', group.bar = FALSE, label = FALSE) + theme(axis.text.y = element_text(color = rev(x = labels))) + NoLegend()
+
+pdf('figures/Heatmap_DonorRest.pdf', width = 20, height = 10)
+print(p4 + p1)
+dev.off()
+
+pdf('figures/HeatmapDonorRest_and_46.pdf', width = 20, height = 10)
+print(p3 + p2)
+dev.off()
+
+p4 + p1 
+
+p3 + p2
+
+```

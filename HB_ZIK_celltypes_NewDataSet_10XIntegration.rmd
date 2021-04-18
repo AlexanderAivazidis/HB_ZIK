@@ -127,64 +127,23 @@ Glioblastoma.list[[i]] <- subset(Glioblastoma.list[[i]], subset = nFeature_RNA >
 VlnPlot(Glioblastoma.list[[i]], features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, group.by = 'Patient')
 ```
 
-Check if 10X data from all patients can be analysed together of if there are batch effects:
+Integrate 10X data from different donors:
 
 ```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
-# To be consistent with the Neftel paper use a scale.factor of 100000:
-Glioblastoma.list[[2]] <- NormalizeData(Glioblastoma.list[[2]], normalization.method = "LogNormalize", scale.factor = 100000)
-Glioblastoma.list[[2]] <- FindVariableFeatures(Glioblastoma.list[[2]], selection.method = "vst", nfeatures = 2000)
-top25 <- head(VariableFeatures(Glioblastoma.list[[2]]), 25)
-plot1 <- VariableFeaturePlot(Glioblastoma.list[[2]])
-plot2 <- LabelPoints(plot = plot1, points = top25, repel = TRUE)
-CombinePlots(plots = list(plot1, plot2))
-all.genes <- rownames(Glioblastoma.list[[2]])
-Glioblastoma.list[[2]] <- ScaleData(Glioblastoma.list[[2]], features = all.genes)
-Glioblastoma.list[[2]] <- RunPCA(Glioblastoma.list[[2]], features = VariableFeatures(object = Glioblastoma.list[[2]]))
 n_dimensions = 15
-Glioblastoma.list[[2]] <- FindNeighbors(Glioblastoma.list[[2]], dims = 1:n_dimensions)
-Glioblastoma.list[[2]] <- FindClusters(Glioblastoma.list[[2]], resolution = 0.5)
-Glioblastoma.list[[2]] <- RunUMAP(Glioblastoma.list[[2]], dims = 1:n_dimensions)
-print(DimPlot(Glioblastoma.list[[i]], reduction = "umap", group.by = "Patient"))
-```
-
-It seems like there are batch effects, so let's integrate this data:
-
-```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
+allGenes = rownames(Glioblastoma.list[[2]])
 Glioblastoma.10x = SplitObject(Glioblastoma.list[[2]], split.by = 'Patient')
 glioblastoma.anchors <- FindIntegrationAnchors(object.list = Glioblastoma.10x, dims = 1:n_dimensions)
-glioblastoma.10x.integrated <- IntegrateData(anchorset = glioblastoma.anchors, dims = 1:n_dimensions)
-
+glioblastoma.10x.integrated <- IntegrateData(anchorset = glioblastoma.anchors, dims = 1:n_dimensions, features.to.integrate = allGenes)
 DefaultAssay(glioblastoma.10x.integrated) <- "integrated"
-
-# Run the standard workflow for visualization and clustering
-glioblastoma.10x.integrated <- ScaleData(glioblastoma.10x.integrated, verbose = FALSE)
+glioblastoma.10x.integrated = FindVariableFeatures(glioblastoma.10x.integrated, selection.method = "vst", nfeatures = 2000)
+glioblastoma.10x.integrated <- ScaleData(glioblastoma.10x.integrated, verbose = FALSE, features = allGenes)
 glioblastoma.10x.integrated <- RunPCA(glioblastoma.10x.integrated, npcs = n_dimensions, verbose = FALSE)
 glioblastoma.10x.integrated <- RunUMAP(glioblastoma.10x.integrated, reduction = "pca", dims = 1:n_dimensions)
 DimPlot(glioblastoma.10x.integrated, reduction = "umap", group.by = "Patient")
 ```
 
-And let's also integrate the SmartSeq data:
-
-```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
-glioblastoma.anchors <- FindIntegrationAnchors(object.list = c(glioblastoma.10x.integrated, Glioblastoma.list[[1]]), dims = 1:n_dimensions)
-glioblastoma.integrated <- IntegrateData(anchorset = glioblastoma.anchors, dims = 1:n_dimensions)
-DefaultAssay(glioblastoma.integrated) <- "integrated"
-
-# Run the standard workflow for visualization and clustering
-glioblastoma.integrated <- ScaleData(glioblastoma.integrated, verbose = FALSE, normalization.method = "LogNormalize", scale.factor = 100000)
-glioblastoma.integrated <- RunPCA(glioblastoma.integrated, npcs = n_dimensions, verbose = FALSE)
-glioblastoma.integrated <- RunUMAP(glioblastoma.integrated, reduction = "pca", dims = 1:n_dimensions)
-DimPlot(glioblastoma.integrated, reduction = "umap", group.by = "Technology")
-
-# To be consistent with the Neftel paper, use log2 normalization:
-
-glioblastoma.integrated = SetAssayData(object = glioblastoma.integrated, slot = "data", new.data = log2(exp(as.matrix(GetAssayData(object = glioblastoma.integrated, slot = "data")))))
-
-```
-
-This did not work great but is the best we can do.
-
-Calculate a module score for each cell using the method in the Neftel 2019 paper and do this on the integrated data:
+Calculate a module score for each cell using the method in the Neftel 2019 paper:
 
 ```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
 
@@ -200,34 +159,34 @@ NPClike = c(modules['NPC2'][modules['NPC2'] != ''], modules['NPC1'][modules['NPC
  
 # Again to be consistent with the Neftel paper note which genes have more than 4 average log2 counts:
 
-normCounts_10X = 2^(as.matrix(GetAssayData(object = glioblastoma.integrated, slot = "data")))
+normCounts = 2^(as.matrix(GetAssayData(object = glioblastoma.10x.integrated, slot = "data")))
              
-average_10X = log2(rowMeans(normCounts_10X))
-keepGenes_10X = average_10X > 4
-rm(average_10X, normCounts_10X)
+average = log2(rowMeans(normCounts))
+keepGenes = average > 4
+rm(average, normCounts)
 
 # Define relative expression:
 
-meanExpression_10x = rowMeans(as.matrix(GetAssayData(object = glioblastoma.integrated, slot = "data")))[keepGenes_10X]
+meanExpression = rowMeans(as.matrix(GetAssayData(object = glioblastoma.10x.integrated, slot = "data")))[keepGenes]
 
-relativeExpression_10x = as.matrix(GetAssayData(object = glioblastoma.integrated, slot = "data"))[keepGenes_10X,]-meanExpression_10x 
+relativeExpression = as.matrix(GetAssayData(object = glioblastoma.10x.integrated, slot = "data"))[keepGenes,]-meanExpression 
 
 # Bin genes into 30 groups based on expression:
-b = seq(from = min(meanExpression_10x)-0.0001, to = max(meanExpression_10x)+0.0001, length.out = 30)
-bins = .bincode(meanExpression_10x, b, TRUE)
-names(bins) = names(meanExpression_10x)
+b = seq(from = min(meanExpression)-0.0001, to = max(meanExpression)+0.0001, length.out = 30)
+bins = .bincode(meanExpression, b, TRUE)
+names(bins) = names(meanExpression)
 
 # Subset signatures to include only available genes:
-MESlike_10x = MESlike[MESlike %in% names(meanExpression_10x)]
-AClike_10x = AClike[AClike %in% names(meanExpression_10x)]
-OPClike_10x = OPClike[OPClike %in% names(meanExpression_10x)]
-NPClike_10x = NPClike[NPClike %in% names(meanExpression_10x)]
+MESlike = MESlike[MESlike %in% names(meanExpression)]
+AClike = AClike[AClike %in% names(meanExpression)]
+OPClike = OPClike[OPClike %in% names(meanExpression)]
+NPClike = NPClike[NPClike %in% names(meanExpression)]
 
 # Extract control gene set for each signature:
-MESlike_bins = bins[MESlike_10x]
-AClike_bins = bins[AClike_10x]
-OPClike_bins = bins[OPClike_10x]
-NPClike_bins = bins[NPClike_10x]
+MESlike_bins = bins[MESlike]
+AClike_bins = bins[AClike]
+OPClike_bins = bins[OPClike]
+NPClike_bins = bins[NPClike]
 
 MESlike_control = unname(unlist(lapply(MESlike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
 AClike_control = unname(unlist(lapply(AClike_bins, function(b) sample(names(bins[bins == b]), 100, replace = T))))
@@ -236,96 +195,74 @@ NPClike_control = unname(unlist(lapply(NPClike_bins, function(b) sample(names(bi
 
 # Calculate score:
 
-MESlike_score = colMeans(relativeExpression_10x[MESlike_10x,]) - colMeans(relativeExpression_10x[MESlike_control,]) 
-AClike_score = colMeans(relativeExpression_10x[AClike_10x,]) - colMeans(relativeExpression_10x[AClike_control,]) 
-OPClike_score = colMeans(relativeExpression_10x[OPClike_10x,]) - colMeans(relativeExpression_10x[OPClike_control,]) 
-NPClike_score = colMeans(relativeExpression_10x[NPClike_10x,]) - colMeans(relativeExpression_10x[NPClike_control,]) 
+MESlike_score = colMeans(relativeExpression[MESlike,]) - colMeans(relativeExpression[MESlike_control,]) 
+AClike_score = colMeans(relativeExpression[AClike,]) - colMeans(relativeExpression[AClike_control,]) 
+OPClike_score = colMeans(relativeExpression[OPClike,]) - colMeans(relativeExpression[OPClike_control,]) 
+NPClike_score = colMeans(relativeExpression[NPClike,]) - colMeans(relativeExpression[NPClike_control,]) 
 
 # Add to object:
 
-glioblastoma.integrated$MESlike_score = MESlike_score
-glioblastoma.integrated$AClike_score = AClike_score
-glioblastoma.integrated$OPClike_score = OPClike_score
-glioblastoma.integrated$NPClike_score = NPClike_score
+glioblastoma.10x.integrated$MESlike_score = MESlike_score
+glioblastoma.10x.integrated$AClike_score = AClike_score
+glioblastoma.10x.integrated$OPClike_score = OPClike_score
+glioblastoma.10x.integrated$NPClike_score = NPClike_score
 
 ```
 
-Visualize distribution of scores in 10x and SmartSeq:
+Visualize distribution of scores in 10x data:
 
 ```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
 
-Glioblastoma.list = SplitObject(glioblastoma.integrated, split.by = 'Technology')
-Glioblastoma.10x = SplitObject(Glioblastoma.list[[1]], split.by = 'Patient')
-Glioblastoma.SmartSeq = SplitObject(Glioblastoma.list[[2]], split.by = 'Patient')
+glioblastoma.10x.integrated.patients = SplitObject(glioblastoma.10x.integrated, split.by = 'Patient')
 
 # Make paired plots for donors 45 and 46:
-
-# par(mfrow=c(3,4))
-# Parent <- data.frame(length = Glioblastoma.10x$`45`$MESlike_score)
-# Zika <- data.frame(length = Glioblastoma.SmartSeq$`45`$MESlike_score)
-# Parent$Origin <- 'Parent 10X Whole Tumour'
-# Zika$Origin <- 'Zika mCherry Positives'
-# scores <- rbind(Parent, Zika)
-# 
-# ggplot(scores, aes(length, fill = Origin)) + 
-#    geom_histogram(alpha = 0.5, aes(y = ..density..), position = 'identity')
 
 par(mfrow=c(3,4))
 
 # 45
 
-hist(Glioblastoma.10x$`45`$MESlike_score, col='skyblue',border=F, freq = F, xlab = 'MESlike score', main = 'Patient 45')
-hist(Glioblastoma.SmartSeq$`45`$MESlike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+hist(glioblastoma.10x.integrated.patients$`45`$MESlike_score, col='skyblue', border=F, freq = F, xlab = 'MESlike score', main = 'Patient 45')
 
-hist(Glioblastoma.10x$`45`$OPClike_score, col='skyblue',border=F, freq = F, xlab = 'OPClike score', main = 'Patient 45')
-hist(Glioblastoma.SmartSeq$`45`$OPClike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+hist(glioblastoma.10x.integrated.patients$`45`$OPClike_score, col='skyblue',border=F, freq = F, xlab = 'OPClike score', main = 'Patient 45')
 
-hist(Glioblastoma.10x$`45`$AClike_score, col='skyblue',border=F, freq = F, xlab = 'AClike score', main = 'Patient 45')
-hist(Glioblastoma.SmartSeq$`45`$AClike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+hist(glioblastoma.10x.integrated.patients$`45`$AClike_score, col='skyblue',border=F, freq = F, xlab = 'AClike score', main = 'Patient 45')
 
-hist(Glioblastoma.10x$`45`$NPClike_score, col='skyblue',border=F, freq = F, xlab = 'NPClike score', main = 'Patient 45')
-hist(Glioblastoma.SmartSeq$`45`$NPClike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+hist(glioblastoma.10x.integrated.patients$`45`$NPClike_score, col='skyblue',border=F, freq = F, xlab = 'NPClike score', main = 'Patient 45')
 
 # 46
 
-hist(Glioblastoma.10x$`46`$MESlike_score, col='skyblue',border=F, freq = F, xlab = 'MESlike score', main = 'Patient 46')
-hist(Glioblastoma.SmartSeq$`45`$MESlike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+hist(glioblastoma.10x.integrated.patients$`46`$MESlike_score, col='skyblue',border=F, freq = F, xlab = 'MESlike score', main = 'Patient 46')
 
-hist(Glioblastoma.10x$`46`$OPClike_score, col='skyblue',border=F, freq = F, xlab = 'OPClike score', main = 'Patient 46')
-hist(Glioblastoma.SmartSeq$`45`$OPClike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+hist(glioblastoma.10x.integrated.patients$`46`$OPClike_score, col='skyblue',border=F, freq = F, xlab = 'OPClike score', main = 'Patient 46')
 
-hist(Glioblastoma.10x$`46`$AClike_score, col='skyblue',border=F, freq = F, xlab = 'AClike score', main = 'Patient 46')
-hist(Glioblastoma.SmartSeq$`45`$AClike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+hist(glioblastoma.10x.integrated.patients$`46`$AClike_score, col='skyblue',border=F, freq = F, xlab = 'AClike score', main = 'Patient 46')
 
-hist(Glioblastoma.10x$`46`$NPClike_score, col='skyblue',border=F, freq = F, xlab = 'NPClike score', main = 'Patient 46')
-hist(Glioblastoma.SmartSeq$`45`$NPClike_score, add=T,col=scales::alpha('red',.5),border=F, freq = F)
+hist(glioblastoma.10x.integrated.patients$`46`$NPClike_score, col='skyblue',border=F, freq = F, xlab = 'NPClike score', main = 'Patient 46')
 
 # 42,43,45,46 in 10x vs 48,50,51,54 in SmartSeq
 
-hist(c(Glioblastoma.10x$`42`$MESlike_score, Glioblastoma.10x$`43`$MESlike_score,Glioblastoma.10x$`45`$MESlike_score, Glioblastoma.10x$`46`$MESlike_score), col='skyblue',border=F, freq = F, xlab = 'MESlike score', main = 'Patients 42,43,45,46 vs 48,50,51,54')
-hist(c(Glioblastoma.SmartSeq$`48`$MESlike_score, Glioblastoma.SmartSeq$`50`$MESlike_score,
-       Glioblastoma.SmartSeq$`51`$MESlike_score,Glioblastoma.SmartSeq$`54`$MESlike_score), add=T,col=scales::alpha('red',.5),border=F, freq = F)
+hist(c(glioblastoma.10x.integrated.patients$`42`$MESlike_score, glioblastoma.10x.integrated.patients$`43`$MESlike_score, glioblastoma.10x.integrated.patients$`45`$MESlike_score, glioblastoma.10x.integrated.patients$`46`$MESlike_score), col='skyblue',border=F, freq = F, xlab = 'MESlike score', main = 'Patients 42,43,45,46 vs 48,50,51,54')
 
-hist(c(Glioblastoma.10x$`42`$OPClike_score, Glioblastoma.10x$`43`$OPClike_score,Glioblastoma.10x$`45`$OPClike_score, Glioblastoma.10x$`46`$OPClike_score), col='skyblue',border=F, freq = F, xlab = 'OPClike score', main = 'Patients 42,43,45,46 vs 48,50,51,54')
-hist(c(Glioblastoma.SmartSeq$`48`$OPClike_score, Glioblastoma.SmartSeq$`50`$OPClike_score,
-       Glioblastoma.SmartSeq$`51`$OPClike_score,Glioblastoma.SmartSeq$`54`$OPClike_score), add=T,col=scales::alpha('red',.5),border=F, freq = F)
+hist(c(glioblastoma.10x.integrated.patients$`42`$OPClike_score, glioblastoma.10x.integrated.patients$`43`$OPClike_score,glioblastoma.10x.integrated.patients$`45`$OPClike_score, glioblastoma.10x.integrated.patients$`46`$OPClike_score), col='skyblue',border=F, freq = F, xlab = 'OPClike score', main = 'Patients 42,43,45,46 vs 48,50,51,54')
 
-hist(c(Glioblastoma.10x$`42`$AClike_score, Glioblastoma.10x$`43`$AClike_score,Glioblastoma.10x$`45`$AClike_score, Glioblastoma.10x$`46`$AClike_score), col='skyblue',border=F, freq = F, xlab = 'AClike score', main = 'Patients 42,43,45,46 vs 48,50,51,54')
-hist(c(Glioblastoma.SmartSeq$`48`$AClike_score, Glioblastoma.SmartSeq$`50`$AClike_score,
-       Glioblastoma.SmartSeq$`51`$AClike_score,Glioblastoma.SmartSeq$`54`$AClike_score), add=T,col=scales::alpha('red',.5),border=F, freq = F)
+hist(c(glioblastoma.10x.integrated.patients$`42`$AClike_score, glioblastoma.10x.integrated.patients$`43`$AClike_score, glioblastoma.10x.integrated.patients$`45`$AClike_score, glioblastoma.10x.integrated.patients$`46`$AClike_score), col='skyblue',border=F, freq = F, xlab = 'AClike score', main = 'Patients 42,43,45,46 vs 48,50,51,54')
 
-hist(c(Glioblastoma.10x$`42`$NPClike_score, Glioblastoma.10x$`43`$NPClike_score,Glioblastoma.10x$`45`$NPClike_score, Glioblastoma.10x$`46`$NPClike_score), col='skyblue',border=F, freq = F, xlab = 'NPClike score', main = 'Patients 42,43,45,46 vs 48,50,51,54')
-hist(c(Glioblastoma.SmartSeq$`48`$NPClike_score, Glioblastoma.SmartSeq$`50`$NPClike_score,
-       Glioblastoma.SmartSeq$`51`$NPClike_score,Glioblastoma.SmartSeq$`54`$NPClike_score), add=T,col=scales::alpha('red',.5),border=F, freq = F)
+hist(c(glioblastoma.10x.integrated.patients$`42`$NPClike_score, glioblastoma.10x.integrated.patients$`43`$NPClike_score, glioblastoma.10x.integrated.patients$`45`$NPClike_score, glioblastoma.10x.integrated.patients$`46`$NPClike_score), col='skyblue',border=F, freq = F, xlab = 'NPClike score', main = 'Patients 42,43,45,46 vs 48,50,51,54')
 
 ```
 
-Vizualize a priori chosen markers of tumour subtypes and brain cell types:
+Cluster data:
 
 ```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
 
-options(stringsAsFactors = FALSE)
-modules = read.delim('/home/jovyan/HB_ZIK/1-s2.0-S0092867419306877-mmc2.csv', skip = 4, sep = ',')
+glioblastoma.10x.integrated <- FindNeighbors(glioblastoma.10x.integrated, dims = 1:n_dimensions)
+glioblastoma.10x.integrated <- FindClusters(glioblastoma.10x.integrated, resolution = 0.5)
+
+```
+
+Define markers of brain cell types and add scores to scale data slot:
+
+```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
 
 cell.markers = c(
   'Neurons' =  'RBFOX3', # NeuN
@@ -437,51 +374,35 @@ kriegstein.markers = c(
 'Dividing Progenitor'		=	'ST8SIA3'
 )
 
-for (i in 1:4){
+glioblastoma.10x.integrated@assays$integrated@scale.data = rbind(glioblastoma.10x.integrated$MESlike_score, glioblastoma.10x.integrated@assays$integrated@scale.data)
+rownames(glioblastoma.10x.integrated@assays$integrated@scale.data)[1] = 'MESlike'
 
-print(i)
-  
-Glioblastoma.10x[[i]]@assays$RNA@scale.data = rbind(colSums(Glioblastoma.10x[[i]]@assays$RNA@scale.data[rownames(Glioblastoma.10x[[i]]@assays$RNA@scale.data) %in% c(modules['MES2'][modules['MES2'] != ''], modules['MES1'][modules['MES1'] != '']),]), Glioblastoma.10x[[i]]@assays$RNA@scale.data)
-rownames(Glioblastoma.10x[[i]]@assays$RNA@scale.data)[1] = 'MESlike'
+glioblastoma.10x.integrated@assays$integrated@scale.data = rbind(glioblastoma.10x.integrated$OPClike_score, glioblastoma.10x.integrated@assays$integrated@scale.data)
+rownames(glioblastoma.10x.integrated@assays$integrated@scale.data)[1] = 'OPClike'
 
-Glioblastoma.10x[[i]]@assays$RNA@scale.data = rbind(colSums(Glioblastoma.10x[[i]]@assays$RNA@scale.data[rownames(Glioblastoma.10x[[i]]@assays$RNA@scale.data) %in% modules['AC'][modules['AC'] != ''],]), Glioblastoma.10x[[i]]@assays$RNA@scale.data)
-rownames(Glioblastoma.10x[[i]]@assays$RNA@scale.data)[1] = 'AClike'
+glioblastoma.10x.integrated@assays$integrated@scale.data = rbind(glioblastoma.10x.integrated$NPClike_score, glioblastoma.10x.integrated@assays$integrated@scale.data)
+rownames(glioblastoma.10x.integrated@assays$integrated@scale.data)[1] = 'NPClike'
 
-Glioblastoma.10x[[i]]@assays$RNA@scale.data = rbind(colSums(Glioblastoma.10x[[i]]@assays$RNA@scale.data[rownames(Glioblastoma.10x[[i]]@assays$RNA@scale.data) %in% modules['OPC'][modules['OPC'] != ''],]), Glioblastoma.10x[[i]]@assays$RNA@scale.data)
-rownames(Glioblastoma.10x[[i]]@assays$RNA@scale.data)[1] = 'OPClike'
-
-Glioblastoma.10x[[i]]@assays$RNA@scale.data = rbind(colSums(Glioblastoma.10x[[i]]@assays$RNA@scale.data[rownames(Glioblastoma.10x[[i]]@assays$RNA@scale.data) %in% c(modules['NPC2'][modules['NPC2'] != ''], modules['NPC1'][modules['NPC1'] != '']),]), Glioblastoma.10x[[i]]@assays$RNA@scale.data)
-rownames(Glioblastoma.10x[[i]]@assays$RNA@scale.data)[1] = 'NPClike'
-
-features = c('MESlike', 'AClike', 'OPClike', 'NPClike', unlist(cell.markers)) 
-count = 0
-for (f in list(1:10, 11:20,21:30,31:43)){
-  count = count + 1
-  pdf(paste('figures/KnownMarkersFeaturePlot', as.character(count), '10x_Patient', names(Glioblastoma.10x)[i],'.pdf', sep = ''), width = 20, height = 10)
-  print(FeaturePlot(Glioblastoma.10x[[i]], features = features[f], slot = 'scale.data'))
-  dev.off()
-  print(FeaturePlot(Glioblastoma.10x[[i]], features = features[f], slot = 'scale.data'))
-}
-
-pdf(paste('figures/KriegsteinMarkersFeaturePlot', '_10x_Patient', names(Glioblastoma.10x)[i],'.pdf', sep = ''), width = 20, height = 10)
-print(FeaturePlot(Glioblastoma.10x[[i]], features = unlist(kriegstein.markers), slot = 'scale.data'))
-dev.off()
-print(FeaturePlot(Glioblastoma.10x[[i]], features = unlist(kriegstein.markers), slot = 'scale.data'))
-}
+glioblastoma.10x.integrated@assays$integrated@scale.data = rbind(glioblastoma.10x.integrated$AClike_score, glioblastoma.10x.integrated@assays$integrated@scale.data)
+rownames(glioblastoma.10x.integrated@assays$integrated@scale.data)[1] = 'AClike'
 
 ```
 
-Visualize a priori chosen markers in a heatmap:
+Visualize clusters and markers in a heatmap:
 
 ```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
-for (i in 1:4){
-pdf(paste('figures/KnownMarkersHeatmap', as.character(count), '10x_Patient', names(Glioblastoma.10x)[i],'.pdf', sep = ''), width = 20, height = 10)
-print(DoHeatmap(Glioblastoma.10x[[i]], features = c('MESlike', 'AClike', 'OPClike', 'NPClike', unlist(cell.markers)), slot = 'scale.data') + NoLegend())
+pdf('ClusterHeatmap_NeftelScores.pdf', width = 20, height = 10)
+print(DoHeatmap(glioblastoma.10x.integrated, features = c('MESlike', 'AClike', 'OPClike', 'NPClike'), slot = 'scale.data',
+                group.by = 'Patient') + NoLegend())
 dev.off()
-print(DoHeatmap(Glioblastoma.10x[[i]], features = unlist(cell.markers), slot = 'scale.data') + NoLegend()) 
-print(DoHeatmap(Glioblastoma.10x[[i]], features = c('MESlike', 'AClike', 'OPClike', 'NPClike'), slot = 'scale.data') + NoLegend()) 
-print(DoHeatmap(Glioblastoma.10x[[i]], features = unlist(kriegstein.markers), slot = 'scale.data') + NoLegend())
-}
+
+pdf('ClusterHeatmap_StandardMarkers.pdf', width = 20, height = 10)
+print(DoHeatmap(glioblastoma.10x.integrated, features = unlist(cell.markers), slot = 'scale.data') + NoLegend()) 
+dev.off()
+
+pdf('ClusterHeatmap_KriegsteinMarkers.pdf', width = 20, height = 10)
+print(DoHeatmap(glioblastoma.10x.integrated, features = unlist(kriegstein.markers), slot = 'scale.data') + NoLegend())
+dev.off()
 ```
 
 Assign identity to cluster based on marker expression:
@@ -546,16 +467,6 @@ new.cluster.ids <- list(
                      "MES/AClike",
                      "NPClike"))
 
-for (i in c(1,2,3,4)){
-  print(i)
-  names(new.cluster.ids[[i]]) <- levels(Glioblastoma.10x[[i]])
-  Glioblastoma.10x[[i]] <- RenameIdents(Glioblastoma.10x[[i]], new.cluster.ids[[i]])
-  pdf(paste('figures/UMAPwithClusterLabel_10x_Patient', names(Glioblastoma.10x)[i],'.pdf', sep = ''), width = 20, height = 10)
-  print(DimPlot(Glioblastoma.10x[[i]], reduction = "umap", label = TRUE, pt.size = 0.5, label.size = 8) + NoLegend())
-  dev.off()
-  print(DimPlot(Glioblastoma.10x[[i]], reduction = "umap", label = TRUE, pt.size = 0.5, label.size = 8) + NoLegend())
-}
-
 ```
 
 Redo Heatmap with new cluster names:
@@ -592,8 +503,6 @@ pdf('figures/CellProportions_All_10X.pdf', width = 20, height = 10)
 ggplot(data, aes(fill=patient, y=value, x=celltype)) + geom_bar(position=position_dodge(), stat="identity")
 dev.off()
 ggplot(data, aes(fill=patient, y=value, x=celltype)) + geom_bar(position=position_dodge(), stat="identity")
-
-
 
 ```
 
