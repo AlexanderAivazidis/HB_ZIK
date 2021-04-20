@@ -456,7 +456,22 @@ Save 10x data object for later analysis:
 
 ```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
 
+library(Seurat)
+library(SeuratData)
+library(SeuratDisk)
+
 saveRDS(Glioblastoma.10x, file = "../data/jhubData/HB_ZIK/HB_ZIK/zikaGlioblastomas_10X_SeuratObject.rds")
+SaveH5Seurat(DietSeurat(
+  Glioblastoma.10x,
+  counts = TRUE,
+  data = TRUE,
+  scale.data = FALSE,
+  features = NULL,
+  assays = NULL,
+  dimreducs = NULL,
+  graphs = NULL
+), filename = "../data/jhubData/HB_ZIK/HB_ZIK/zikaGlioblastomas_10X_SeuratObject.h5Seurat", overwrite = TRUE)
+Convert("../data/jhubData/HB_ZIK/HB_ZIK/zikaGlioblastomas_10X_SeuratObject.h5Seurat", dest = "h5ad")
 
 ```
 
@@ -780,10 +795,11 @@ Glioblastoma.SmartSeq.all$Celltype = Idents(Glioblastoma.SmartSeq.all)
 
 Glioblastoma.SmartSeq.all$Celltype2 = Idents(Glioblastoma.SmartSeq.all)
 
-Glioblastoma.10x$Celltype3 = as.vector(Glioblastoma.SmartSeq.all$Celltype2)
-Glioblastoma.10x$Celltype3[Glioblastoma.10x$Celltype3 %in% c('AClike', 'OPClike', 'NPClike', 'MESlike')] = 'GSC'
+Glioblastoma.SmartSeq.all$Celltype3 = as.vector(Glioblastoma.SmartSeq.all$Celltype2)
+Glioblastoma.SmartSeq.all$Celltype3[Glioblastoma.SmartSeq.all$Celltype3 %in% c('AClike', 'OPClike', 'NPClike', 'MESlike')] = 'GSC'
 
 DimPlot(Glioblastoma.SmartSeq.all, reduction = "umap", group.by = "Celltype")
+DimPlot(Glioblastoma.SmartSeq.all, reduction = "umap", group.by = "Celltype3")
 DimPlot(Glioblastoma.SmartSeq.all, reduction = "umap", group.by = "seurat_clusters")
 DimPlot(Glioblastoma.SmartSeq.all, reduction = "umap", group.by = "Patient")
 ```
@@ -793,9 +809,19 @@ DimPlot(Glioblastoma.SmartSeq.all, reduction = "umap", group.by = "Patient")
 ```{r, include = TRUE, message = FALSE, warning = FALSE, cache = FALSE, fig.height = 8, fig.width = 16}
 
 saveRDS(Glioblastoma.SmartSeq.all, file = "../data/jhubData/HB_ZIK/HB_ZIK/zikaGlioblastomas_SS_SeuratObject.rds")
+SaveH5Seurat(DietSeurat(
+  Glioblastoma.SmartSeq.all,
+  counts = TRUE,
+  data = TRUE,
+  scale.data = FALSE,
+  features = NULL,
+  assays = NULL,
+  dimreducs = NULL,
+  graphs = NULL
+), filename = "../data/jhubData/HB_ZIK/HB_ZIK/zikaGlioblastomas_SS_SeuratObject.h5Seurat")
+Convert("../data/jhubData/HB_ZIK/HB_ZIK/zikaGlioblastomas_SS_SeuratObject.h5Seurat", dest = "h5ad")
 
 ```
-
 
 Now also integrate SmartSeq data and 10X:
 
