@@ -45,9 +45,6 @@ rownames(counts) = all_genes
 microglia = CreateSeuratObject(counts = counts)
 microglia$Cluster = metadata2$Cluster
 
-glioblastoma_10x = glioblastoma_10x[,glioblastoma_10x$SampleName %in% celltypes10x$Cellname[celltypes10x$Classification == 'Microglia']]
-glioblastoma_SS = glioblastoma_SS[,glioblastoma_SS$SampleName %in% celltypesSS$Cellname[celltypesSS$Classification == 'Microglia']]
-
 # Now classify 10x and SS microglia based on reference:
 
 microglia = NormalizeData(microglia, normalization.method = "LogNormalize", scale.factor = 10000)
@@ -71,6 +68,9 @@ n_dimensions = 30
 glioblastoma_SS <- RunPCA(glioblastoma_SS, npcs = n_dimensions, verbose = FALSE)
 glioblastoma_SS <- RunUMAP(glioblastoma_SS, reduction = "pca", dims = 1:n_dimensions)
 DimPlot(glioblastoma_SS, reduction = "umap", group.by = "Celltype")
+
+glioblastoma_10x = glioblastoma_10x[,glioblastoma_10x$SampleName %in% celltypes10x$Cellname[celltypes10x$Classification == 'Microglia']]
+glioblastoma_SS = glioblastoma_SS[,glioblastoma_SS$SampleName %in% celltypesSS$Cellname[celltypesSS$Classification == 'Microglia']]
 
 features = VariableFeatures(microglia)
 microglia.anchors <- FindTransferAnchors(reference = microglia, query = glioblastoma_10x,
@@ -119,10 +119,14 @@ print(DoHeatmap(glioblastoma_SS, features = cluster_markers1,
                 slot = 'scale.data'))
 dev.off()
 
-SaveH5Seurat(glioblastoma_SS, filename = "/home/jovyan/data/jhubData/HB_ZIK/HB_ZIK/zikaGlioblastomas_SS_microglia.h5Seurat")
-Convert("/home/jovyan/data/jhubData/HB_ZIK/HB_ZIK/zikaGlioblastomas_SS_microglia.h5Seurat", dest = "h5ad")
+SaveH5Seurat(glioblastoma_SS, filename = "/home/jovyan/data/jhubData/HB_ZIK/HB_ZIK/zikaGlioblastomas_SS_microglia1.h5Seurat")
+Convert("/home/jovyan/data/jhubData/HB_ZIK/HB_ZIK/zikaGlioblastomas_SS_microglia1.h5Seurat", dest = "h5ad")
 
-SaveH5Seurat(glioblastoma_10x, filename = "/home/jovyan/data/jhubData/HB_ZIK/HB_ZIK/zikaGlioblastomas_10x_microglia.h5Seurat")
-Convert("/home/jovyan/data/jhubData/HB_ZIK/HB_ZIK/zikaGlioblastomas_10x_microglia.h5Seurat", dest = "h5ad")
+SaveH5Seurat(glioblastoma_10x, filename = "/home/jovyan/data/jhubData/HB_ZIK/HB_ZIK/zikaGlioblastomas_10x_microglia1.h5Seurat")
+Convert("/home/jovyan/data/jhubData/HB_ZIK/HB_ZIK/zikaGlioblastomas_10x_microglia1.h5Seurat", dest = "h5ad")
 
+DoHeatmap(microglia, features = cluster_markers1,
+          slot = 'scale.data')
 
+DoHeatmap(microglia, features = cluster_markers1,
+          slot = 'data')
